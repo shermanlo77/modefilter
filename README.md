@@ -3,7 +3,7 @@
 * MIT License - all source code
 * Copyright (c) 2020 Sherman Lo
 
-*ImageJ* plugins for the mode filter and empirical null filter. The mode filter is an edge preserving smoothing filter by taking the mode of the empirical density. This may have applications in image processing such as image segmentation. The filters were also implemented on a GPU using *CUDA* and *JCuda*. This speeds up the filtering by a huge margin.
+*ImageJ* plugins for the mode filter and empirical null filter. The mode filter is an edge preserving smoothing filter by taking the mode of the empirical density. This may have applications in image processing such as image segmentation. The filters were also implemented on a *Nvidia* GPU using *CUDA* and *JCuda*. This speeds up the filtering by a huge margin.
 
 Where appropriate, please cite the thesis Lo, S.E. (2020). *Characterisation of Computed Tomography Noise in Projection Space with Applications to Additive Manufacturing*. PhD thesis, University of Warwick, Department of Statistics.
 
@@ -11,7 +11,7 @@ Where appropriate, please cite the thesis Lo, S.E. (2020). *Characterisation of 
 The mode filter applied on the [Mandrill test image](http://sipi.usc.edu/database/database.php?volume=misc). Top left to top right, bottom left to bottom right: mandrill test image, then the mode filter with radius of 2, 4, 8, 16, 32, 64, 128 applied.
 
 ## How to Compile (Linux recommended)
-Requires *Maven* as well as *Java Runtime Environment* and *Java Development Kit*. For the use of GPU, requires *CUDA Development Kit* which should include a *nvcc* compiler.
+Requires *Maven* as well as *Java Runtime Environment* and *Java Development Kit*. For the use of a *Nvidia* GPU, requires *CUDA Development Kit* which should include a *nvcc* compiler.
 
 Clone this repository.
 
@@ -33,8 +33,8 @@ Installation of `Empirical_Null_Filter-X.X.X.jar` can be done by copying the fil
 
 The required `.jar` libraries are to be copied into *Fiji*'s `jars/` directory. They are:
  * `commons-math3-3.6.1.jar` (may already be provided)
- * `jcuda-10.1.0.jar`
- * `jcuda-natives-10.1.0-linux-x86_64.jar`
+ * `jcuda-10.1.0.jar` (for GPU usage)
+ * `jcuda-natives-10.1.0-linux-x86_64.jar` (or similar for GPU usage)
 
 ## Options
 <img src=filter_gui.png><br>
