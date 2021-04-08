@@ -23,9 +23,13 @@
 *.svg
 *.lot
 *.lof
+.classpath
+.project
 
 # directories
 data/
+target/
+.settings/
 
 # Compiled source #
 ###################
