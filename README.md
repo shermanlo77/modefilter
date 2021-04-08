@@ -21,17 +21,20 @@ At `pom.xml`, run
 ```
 mvn package
 ```
-to compile the *Java* code. The compiled `.jar` file is stored in `target/Empirical_Null_Filter-X.X.X.jar` and can be used as an *ImageJ* plugin. Copies of libraries are stored in `target/libs/` and would need to be installed in *ImageJ* as well. Also included is `target/Empirical_Null_Filter-X.X.X-jar-with-dependencies.jar` which includes the required libraries within the `.jar` file.
+to compile the *Java* code. The compiled `.jar` file is `target/Empirical_Null_Filter-X.X.X.jar` and can be used as an *ImageJ* plugin. Copies of required libraries are stored in `target/libs/` and would need to be installed in *ImageJ* as well.
 
-The `Empirical_Null_Filter-X.X.X-jar-with-dependencies.jar` file shall be provided in the releases.
+The required `.jar` files shall be provided in the releases.
 
 ## How to Install (*Fiji* recommended)
 
 The required `.jar` files can be obtained by either compiling (CPU and GPU) or downloading from the releases (CPU only).
 
-Installation can be done by copying the `.jar` files to *Fiji*'s directories or, in *Fiji*, using the *Plugins* menu followed by *Install...* (or Ctrl + Shift + M). The required `.jar` file is
-* `Empirical_Null_Filter-X.X.X-jar-with-dependencies.jar` which includes all required libraries
-* *OR* `target/Empirical_Null_Filter-X.X.X.jar` along with the required libraries in *Fiji*'s `jars/` directory such as `target/libs/commons-math3-3.6.1.jar`, `target/libs/jcuda-10.1.0.jar` and `target/libs/jcuda-natives-10.1.0-linux-x86_64.jar`.
+Installation of `Empirical_Null_Filter-X.X.X.jar` can be done by copying the file into *Fiji*'s `plugins/` directory or, in *Fiji*, using the *Plugins* menu followed by *Install...* (or Ctrl + Shift + M).
+
+The required `.jar` libraries are to be copied into *Fiji*'s `jars/` directory. They are:
+ * `commons-math3-3.6.1.jar` (may already be provided)
+ * `jcuda-10.1.0.jar`
+ * `jcuda-natives-10.1.0-linux-x86_64.jar`
 
 ## Options
 <img src=filter_gui.png><br>
