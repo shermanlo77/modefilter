@@ -1,30 +1,32 @@
-//MIT License
-//Copyright (c) 2019 Sherman Lo
+// MIT License
+// Copyright (c) 2019 Sherman Lo
 
 import uk.ac.warwick.sip.empiricalnullfilter.EmpiricalNullFilter;
 import uk.ac.warwick.sip.empiricalnullfilter.BenchMarker;
 
-//EMPIRICAL NULL FILTER
-/**Copy of EmpiricalNullFilter, the class name has underscores so that it can be used by ImageJ
+// EMPIRICAL NULL FILTER
+/**
+ * Copy of EmpiricalNullFilter, the class name has underscores so that it can be used by ImageJ
+ * 
  * @author Sherman Lo
  */
-public class Empirical_Null_Filter extends EmpiricalNullFilter{
+public class Empirical_Null_Filter extends EmpiricalNullFilter {
 
   public Empirical_Null_Filter() {
     this.setProgress(true);
   }
 
-  //MAIN
-  //-b for benchmark
-  public static void main(String[] args) throws Exception{
+  // MAIN
+  // -b for benchmark
+  public static void main(String[] args) throws Exception {
     System.out.println("MIT License - please see LICENSE");
     System.out.println("Copyright (c) 2019 Sherman Lo");
     System.out.println("Please see https://github.com/shermanlo77/oxwasp_phd or README.md");
 
     if (args.length > 0) {
 
-      //benchmark
-      //see Benchmarker for useage
+      // benchmark
+      // see Benchmarker for useage
       if (args[0].equals("-b")) {
 
         String fileName = null;
@@ -35,12 +37,12 @@ public class Empirical_Null_Filter extends EmpiricalNullFilter{
         int dimY = 0;
         boolean gotParameters = false;
 
-        //check the content of args
+        // check the content of args
         try {
           fileName = args[1];
           if (args[2].equals("cpu")) {
             isCpu = true;
-          } else if (args[2].equals("gpu")){
+          } else if (args[2].equals("gpu")) {
             isCpu = false;
           } else {
             throw new Exception();
@@ -61,7 +63,7 @@ public class Empirical_Null_Filter extends EmpiricalNullFilter{
           printBenchmarkManual();
         }
 
-        //then do the benchmark
+        // then do the benchmark
         if (gotParameters) {
           try {
             BenchMarker.benchmark(fileName, isCpu, radius, nInitial, dimX, dimY);

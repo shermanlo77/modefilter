@@ -1,39 +1,41 @@
-//MIT License
-//Copyright (c) 2020 Sherman Lo
+// MIT License
+// Copyright (c) 2020 Sherman Lo
 
 package uk.ac.warwick.sip.empiricalnullfilter;
 
 import ij.IJ;
 import ij.process.ImageProcessor;
 
-public class ModeFilter extends EmpiricalNullFilter{
+public class ModeFilter extends EmpiricalNullFilter {
 
-  //CONSTRUCTOR
+  // CONSTRUCTOR
   public ModeFilter() {
     this.outputImagePointer = 0;
     this.nImageOutput = 0;
     this.flags = DOES_ALL + CONVERT_TO_FLOAT;
   }
 
-  //IMPLEMENTED: RUN
-  /**For the use of ExtendedPlugInFilter. Do the filtering.
+  // IMPLEMENTED: RUN
+  /**
+   * For the use of ExtendedPlugInFilter. Do the filtering.
+   * 
    * @param ip image to be filtered
    */
   @Override
   public void run(ImageProcessor ip) {
-    //save the image
+    // save the image
     this.imageProcessor = ip;
-    //do the filtering
+    // do the filtering
     this.filter();
-    //interrupted by user?
+    // interrupted by user?
     if (IJ.escapePressed()) {
       ip.reset();
     }
   }
 
-  //resulting image is the mode
+  // resulting image is the mode
   @Override
-  protected void updatePixelInImage(float [] values, int valuesP, float [] nullMeanStd) {
+  protected void updatePixelInImage(float[] values, int valuesP, float[] nullMeanStd) {
     values[valuesP] = nullMeanStd[0];
   }
 
