@@ -82,6 +82,36 @@ They are:
     performance of the filter. Good suggestions are 16 and 32. Solutions are
     shared between neighbours within blocks.
 
+## Using the Mode Filter via Terminal
+
+The mode filter can be used via the terminal. Go to `target/` and run the
+`.jar` file. To use a GUI for parameter selection
+
+```shell
+java -jar Empirical_Null_Filter-x.x.x.jar gui ['cpu' or 'gpu'] <loc of image to filter>
+```
+
+This will make a GUI appear to select your parameters. Once selected, click OK
+to filter the image. A dialogue box will appear to save the resulting image in
+`.png` format.
+
+To run the mode filter without a GUI
+
+```shell
+java -jar Empirical_Null_Filter-x.x.x.jar run ['cpu' or 'gpu'] \
+<loc of image to filter> <loc to save resulting .png> [options]
+```
+
+where the options are
+
+* `-r` radius of kernel
+* `-i` number of initial points for Newton-Raphson
+* `-s` number of steps for Newton-Raphson
+* `-t` stopping condition tolerance for Newton-Raphson (recommend negative
+  number), only for CPU]
+* `-x` x block dimension, only for GPU
+* `-y` y block dimension, only for GPU
+
 ## About the Mode Filter
 
 The mode filter is an image filter much like the mean filter and median filter.
