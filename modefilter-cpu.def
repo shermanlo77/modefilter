@@ -1,0 +1,20 @@
+BootStrap: docker
+From: ubuntu
+
+%environment
+    export LC_ALL=C
+
+%post
+    apt update
+    apt install -y git
+    apt install -y openjdk-11-jdk
+    apt install -y maven
+
+    cd /usr/local/src
+    git clone https://github.com/shermanlo77/modefilter.git
+    cd modefilter
+    mvn package
+
+%runscript
+    unset DISPLAY
+    java -jar /usr/local/src/modefilter/target/Empirical_Null_Filter-*.jar "$@"

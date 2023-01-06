@@ -1,0 +1,27 @@
+BootStrap: docker
+From: ubuntu
+
+%environment
+    export LC_ALL=C
+    export NVCCFLAGS="-arch=sm_75 --ptxas-options=-v --use_fast_math"
+
+%post
+    apt update
+    apt install -y git
+    apt install -y openjdk-11-jdk
+    apt install -y maven
+    apt install -y gcc
+    apt install -y nvidia-cuda-toolkit
+
+    cd /usr/local/src
+    git clone https://github.com/shermanlo77/modefilter.git
+    cd modefilter
+    cd cuda
+    nvcc -ptx empiricalNullFilter.cu -o empiricalNullFilter.ptx $NVCCFLAGS \
+      -L${CUDA_HOME}/lib64 -lcudart -lcurand
+    cd ..
+    mvn package
+
+%runscript
+    unset DISPLAY
+    java -jar /usr/local/src/modefilter/target/Empirical_Null_Filter-*.jar "$@"
