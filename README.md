@@ -77,7 +77,9 @@ The required `.jar` files shall be provided in the releases.
 ## How to Install (*Fiji* recommended)
 
 The required `.jar` files can be obtained by either compiling (CPU and GPU) or
-downloading from the releases (CPU only).
+downloading from the
+[releases](https://github.com/shermanlo77/modefilter/releases) (CPU only) and
+extracting from `target.zip`.
 
 Installation of `Empirical_Null_Filter-X.X.X.jar` can be done by copying the
 file into *Fiji*'s `plugins/` directory or, in *Fiji*, using the *Plugins* menu
