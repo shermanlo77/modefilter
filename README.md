@@ -158,7 +158,7 @@ apptainer build modefilter-cpu.sif modefilter-cpu.def
 To apply the mode filter on an image using the container via the terminal
 
 ```shell
-apptainer run modefilter-cpu.sif modefilter-cpu.def run cpu \
+apptainer run modefilter-cpu.sif run cpu \
     <loc of image to filter> <loc to save resulting .png> [options]
 ```
 
@@ -196,7 +196,7 @@ To apply the mode filter on an image using the container via the terminal, use
 the `--nv` flag
 
 ```shell
-apptainer run --nv modefilter-gpu.sif modefilter-gpu.def run ['cpu' or 'gpu'] \
+apptainer run --nv modefilter-gpu.sif run ['cpu' or 'gpu'] \
     <loc of image to filter> <loc to save resulting .png> [options]
 ```
 
