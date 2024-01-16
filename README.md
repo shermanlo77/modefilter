@@ -102,7 +102,8 @@ They are:
   * Number of CPU threads to use when doing mean, median and quantile filtering.
     Currently, they are only implemented on the CPU. These are used as inputs
     for mode filtering. Thus there will be some CPU computation even in the
-    GPU version of the mode filter.
+    GPU version of the mode filter. It will default to use all detectable
+    threads.
 * Number of initial values
   * Number of initial values for the Newton-Raphson method. Increase this for
     more accurate filtering at a price of more computational time. Compared to
