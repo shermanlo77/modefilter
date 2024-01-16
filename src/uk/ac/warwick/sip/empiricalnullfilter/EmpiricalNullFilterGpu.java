@@ -6,9 +6,11 @@
  *
  * Runs the compiled CUDA code. The CUDA cude is compiled into a .ptx file which is then used by the
  * JCuda package. Tries to be as similar as the CPU version. Main difference is how the mode
- * soutions are shared. They are shared within block neighbours. Performance is affected by block
+ * solutions are shared. They are shared within block neighbours. Performance is affected by block
  * dimensions, 16x16 and 32x32 were found to be best from very from quick experimenting and
  * eyeballing. Tolerance for Newton-Raphson is disabled as this introduces branching in GPU code.
+ *
+ * Multiple CPU threads are used in std, median and quantile filtering
  */
 
 package uk.ac.warwick.sip.empiricalnullfilter;
@@ -66,6 +68,8 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
   @Override
   public void showOptionsInDialog(GenericDialog genericDialog) {
     genericDialog.addMessage("Advanced options");
+
+    genericDialog.addNumericField("number of threads", this.getNumThreads(), 0, 3, null);
     genericDialog.addNumericField("number of initial values", this.getNInitial(), 0, 6, null);
     genericDialog.addNumericField("number of steps", this.getNStep(), 0, 6, null);
     genericDialog.addMessage("GPU options");
@@ -79,6 +83,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
   @Override
   protected void changeValueFromDialog(GenericDialog genericDialog) throws InvalidValueException {
     try {
+      this.setNumThreads((int) genericDialog.getNextNumber());
       this.setNInitial((int) genericDialog.getNextNumber());
       this.setNStep((int) genericDialog.getNextNumber());
       this.setBlockDimX((int) genericDialog.getNextNumber());
@@ -151,6 +156,11 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       rankFilters.imageProcessor = this.imageProcessor;
       rankFilters.roi = this.roi;
       rankFilters.setRadius(this.getRadius());
+      try {
+        rankFilters.setNumThreads(this.getNumThreads());
+      } catch (InvalidValueException exception) {
+        throw new RuntimeException(exception);
+      }
       rankFilters.filter();
 
       Rectangle roiRectangle = this.imageProcessor.getRoi();

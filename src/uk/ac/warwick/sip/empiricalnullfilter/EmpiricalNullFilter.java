@@ -80,6 +80,8 @@ public class EmpiricalNullFilter implements ExtendedPlugInFilter, DialogListener
   /** values used in the previous filtering */
   private static double lastRadius = 0;
   /** values used in the previous filtering */
+  private static int lastNumThreads = Prefs.getThreads();
+  /** values used in the previous filtering */
   private static int lastNInitial = EmpiricalNull.N_INITIAL;
   /** values used in the previous filtering */
   private static int lastNStep = EmpiricalNull.N_STEP;
@@ -149,7 +151,7 @@ public class EmpiricalNullFilter implements ExtendedPlugInFilter, DialogListener
 
   // MULTITHREADING RELATED
   /** number of threads */
-  private int numThreads = Prefs.getThreads();
+  private int numThreads = lastNumThreads;
   /**
    * Current state of processing is in class variables. Thus, stack parallelization must be done
    * ONLY with one thread for the image
@@ -251,6 +253,7 @@ public class EmpiricalNullFilter implements ExtendedPlugInFilter, DialogListener
 
     if (Macro.getOptions() == null) { // interactive only: remember settings
       lastRadius = this.radius;
+      lastNumThreads = this.numThreads;
       lastNInitial = this.nInitial;
       lastNStep = this.nStep;
       lastLog10Tolerance = this.log10Tolerance;
@@ -269,6 +272,7 @@ public class EmpiricalNullFilter implements ExtendedPlugInFilter, DialogListener
     // add fields for the empirical null tuning parameters
     // integers do not show decimal points
     genericDialog.addMessage("Advanced options");
+    genericDialog.addNumericField("number of threads", this.getNumThreads(), 0, 3, null);
     genericDialog.addNumericField("number of initial values", this.getNInitial(), 0, 6, null);
     genericDialog.addNumericField("number of steps", this.getNStep(), 0, 6, null);
     genericDialog.addNumericField("log tolerance", this.getLog10Tolerance(), 2, 6, null);
@@ -310,6 +314,7 @@ public class EmpiricalNullFilter implements ExtendedPlugInFilter, DialogListener
 
   protected void changeValueFromDialog(GenericDialog genericDialog) throws InvalidValueException {
     try {
+      this.setNumThreads((int) genericDialog.getNextNumber());
       this.setNInitial((int) genericDialog.getNextNumber());
       this.setNStep((int) genericDialog.getNextNumber());
       this.setLog10Tolerance((float) genericDialog.getNextNumber());
@@ -756,7 +761,26 @@ public class EmpiricalNullFilter implements ExtendedPlugInFilter, DialogListener
     }
   }
 
-  // =====STATIC FUNCTIONS AND PROCEDURES=====
+  /**
+   * Set number of threads
+   * 
+   * @param numThreads must be 1 or bigger
+   * @throws InvalidValueException
+   */
+  public void setNumThreads(int numThreads) throws InvalidValueException {
+    if (numThreads > 0) {
+      this.numThreads = numThreads;
+    } else {
+      throw new InvalidValueException("number of threads must be positive");
+    }
+  }
+
+  /**
+   * @return number of threads to use
+   */
+  public int getNumThreads() {
+    return this.numThreads;
+  }
 
   /**
    * Set number of initial points
