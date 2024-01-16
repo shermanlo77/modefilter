@@ -9,9 +9,11 @@ density. This may have applications in image processing such as image
 segmentation. The filters were also implemented on an *Nvidia* GPU using *CUDA*
 and *JCuda*. This speeds up the filtering by a huge margin.
 
-Where appropriate, please cite the thesis Lo, S.E. (2020). *Characterisation of
-Computed Tomography Noise in Projection Space with Applications to Additive
-Manufacturing*. PhD thesis, University of Warwick, Department of Statistics.
+Where appropriate, please cite the thesis
+
+* Lo, S.E. (2020). *Characterisation of Computed Tomography Noise in Projection
+  Space with Applications to Additive Manufacturing*. PhD thesis, University of
+  Warwick, Department of Statistics.
 
 ![images of a Mandrill with a mode filter, of varying radius kernel,
 applied](mandrillExample.jpg)
@@ -96,6 +98,12 @@ They are:
 
 ![Screenshot of the GUI](filter_gui.png)
 
+* Number of (CPU) threads
+  * Number of CPU threads to use when doing mean, median and quantile filtering.
+    Currently, they are only implemented on the CPU. These are used as inputs
+    for mode filtering. Thus there will be some CPU computation even in the
+    GPU version of the mode filter. It will default to use all detectable
+    threads.
 * Number of initial values
   * Number of initial values for the Newton-Raphson method. Increase this for
     more accurate filtering at a price of more computational time. Compared to
@@ -138,6 +146,7 @@ java -jar Empirical_Null_Filter-x.x.x.jar run ['cpu' or 'gpu'] \
 where the options are
 
 * `-r` radius of kernel
+* `-n` number of CPU threads
 * `-i` number of initial points for Newton-Raphson
 * `-s` number of steps for Newton-Raphson
 * `-t` stopping condition tolerance for Newton-Raphson (recommend negative

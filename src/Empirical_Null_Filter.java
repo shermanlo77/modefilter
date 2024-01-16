@@ -34,6 +34,7 @@ import uk.ac.warwick.sip.empiricalnullfilter.ModeFilterGpu;
  * <li>image file to run filter on</li>
  * <li>path to save filtered image to in .png format</li>
  * <li>[-r radius of the kernel]</li>
+ * <li>[-n number of threads]</li>
  * <li>[-i number of initial points for Newton-Raphson]</li>
  * <li>[-s number of steps for Newton-Raphson]</li>
  * <li>[-t stopping condition tolerance for Newton-Raphson (recommend negative number), only for
@@ -52,7 +53,7 @@ public class Empirical_Null_Filter extends EmpiricalNullFilter {
 
   public static void main(String[] args) throws Exception {
     System.out.println("MIT License - please see LICENSE");
-    System.out.println("Copyright (c) 2019-2023 Sherman Lo");
+    System.out.println("Copyright (c) 2019-2024 Sherman Lo");
     System.out.println("Please see https://github.com/shermanlo77/modefilter or README.md");
     System.out.println();
 
@@ -112,6 +113,11 @@ public class Empirical_Null_Filter extends EmpiricalNullFilter {
           float radius;
           radius = Float.parseFloat(args[argsIndex++]);
           filter.setRadius(radius);
+          break;
+        case "-n": // number of threads
+          int numThreads;
+          numThreads = Integer.parseInt(args[argsIndex++]);
+          filter.setNumThreads(numThreads);
           break;
         case "-i": // number of initial values
           int nInitial;
@@ -258,6 +264,7 @@ public class Empirical_Null_Filter extends EmpiricalNullFilter {
     System.out.println();
     System.out.println("Options:");
     System.out.println("-r    radius of kernel");
+    System.out.println("-n    number of threads");
     System.out.println("-i    number of initial points for Newton-Raphson");
     System.out.println("-s    number of steps for Newton-Raphson");
     System.out.println(
