@@ -138,7 +138,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
     try {
 
       // load ptx code
-      String ptxPath = "empiricalNullFilter.ptx";
+      String ptxPath = "empiricalnullfilter.ptx";
       InputStream inputStream = this.getClass().getClassLoader().getResourceAsStream(ptxPath);
       Scanner scanner = new Scanner(inputStream);
       Scanner scannerAll = scanner.useDelimiter("\\A");
@@ -149,7 +149,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       CUmodule module = new CUmodule();
       JCudaDriver.cuModuleLoadData(module, ptx);
       CUfunction kernel = new CUfunction();
-      JCudaDriver.cuModuleGetFunction(kernel, module, "empiricalNullFilter");
+      JCudaDriver.cuModuleGetFunction(kernel, module, "EmpiricalNullFilter");
 
       // use cpu to get std, median and quantile filtering
       RankFilters rankFilters = new RankFilters();
@@ -168,7 +168,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       int roiX = roiRectangle.x;
       int roiY = roiRectangle.y;
 
-      // get variables, put in [] to enumlate pointers
+      // get variables, put in [] to enumulate pointers
       int[] roiWidth = {roiRectangle.width};
       int[] roiHeight = {roiRectangle.height};
       int[] cacheWidth = {cache.getCacheWidth()};
@@ -295,15 +295,15 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       long[] size = new long[1];
 
       // get pointers to constant memory
-      JCudaDriver.cuModuleGetGlobal(d_roiWidth, size, module, "roiWidth");
-      JCudaDriver.cuModuleGetGlobal(d_roiHeight, size, module, "roiHeight");
-      JCudaDriver.cuModuleGetGlobal(d_cacheWidth, size, module, "cacheWidth");
-      JCudaDriver.cuModuleGetGlobal(d_kernelRadius, size, module, "kernelRadius");
-      JCudaDriver.cuModuleGetGlobal(d_kernelHeight, size, module, "kernelHeight");
-      JCudaDriver.cuModuleGetGlobal(d_nInitial, size, module, "nInitial");
-      JCudaDriver.cuModuleGetGlobal(d_nStep, size, module, "nStep");
-      JCudaDriver.cuModuleGetGlobal(d_cachePointerWidth, size, module, "cachePointerWidth");
-      JCudaDriver.cuModuleGetGlobal(d_isCopyCacheToShared, size, module, "isCopyCacheToShared");
+      JCudaDriver.cuModuleGetGlobal(d_roiWidth, size, module, "kRoiWidth");
+      JCudaDriver.cuModuleGetGlobal(d_roiHeight, size, module, "kRoiHeight");
+      JCudaDriver.cuModuleGetGlobal(d_cacheWidth, size, module, "kCacheWidth");
+      JCudaDriver.cuModuleGetGlobal(d_kernelRadius, size, module, "kKernelRadius");
+      JCudaDriver.cuModuleGetGlobal(d_kernelHeight, size, module, "kKernelHeight");
+      JCudaDriver.cuModuleGetGlobal(d_nInitial, size, module, "kNInitial");
+      JCudaDriver.cuModuleGetGlobal(d_nStep, size, module, "kNStep");
+      JCudaDriver.cuModuleGetGlobal(d_cachePointerWidth, size, module, "kCachePointerWidth");
+      JCudaDriver.cuModuleGetGlobal(d_isCopyCacheToShared, size, module, "kIsCopyImageToShared");
 
       // copy from host to device
       JCudaDriver.cuMemcpyHtoD(d_roiWidth, h_roiWidth, Sizeof.INT);
