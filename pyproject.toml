@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modefilter"
+authors = [
+    {name = "Sherman Lo", email = "sherman.ip.10@alumni.ucl.ac.uk"},
+]
+version = "2.4.0"
+dependencies = [
+    "numpy",
+    "scipy",
+    "cupy-cuda12x",
+]
+
+[tool.setuptools.packages.find]
+where = ["python",]
+
+[tool.setuptools.package-data]
+"*" = ["*.ptx"]

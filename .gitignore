@@ -29,7 +29,10 @@
 # directories
 data/
 target/
+dist/
 .settings/
+**/__pycache__/
+**/*egg-info/
 
 # Compiled source #
 ###################

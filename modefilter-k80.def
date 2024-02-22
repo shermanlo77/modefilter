@@ -3,7 +3,7 @@ From: nvidia/cuda:10.1-devel-ubuntu18.04
 
 %environment
     export LC_ALL=C
-    export NVCCFLAGS="-arch=sm_37 --ptxas-options=-v --use_fast_math"
+    export nvcc_arch="sm_37"
 
 %post
     apt update
@@ -15,10 +15,8 @@ From: nvidia/cuda:10.1-devel-ubuntu18.04
     cd /usr/local/src
     git clone https://github.com/shermanlo77/modefilter.git
     cd modefilter
-    cd cuda
-    nvcc -ptx empiricalNullFilter.cu -o empiricalNullFilter.ptx $NVCCFLAGS \
-      -L${CUDA_HOME}/lib64 -lcudart -lcurand
-    cd ..
+    sed -i -r 's/sm_[0-9]+/'${nvcc_arch}'/g' Makefile
+    make
     mvn package
 
 %runscript
