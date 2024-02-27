@@ -3,25 +3,27 @@ From: ubuntu
 
 %environment
     export LC_ALL=C
+    export PYTHONNOUSERSITE=1
 
 %post
     nvcc_arch="sm_75"
 
     apt update
     apt install -y git
-    apt install -y openjdk-11-jdk
-    apt install -y maven
     apt install -y gcc
     apt install -y nvidia-cuda-toolkit
-    apt install -y build-essential
+    apt install -y python-is-python3
+    apt install -y python3-pip
+    apt install -y python3-venv
+    pip install --upgrade build
 
     cd /usr/local/src
     git clone https://github.com/shermanlo77/modefilter.git
     cd modefilter
     sed -i -r 's/sm_[0-9]+/'${nvcc_arch}'/g' Makefile
     make
-    mvn package
+    python -m build
+    pip install dist/modefilter-*.whl
 
 %runscript
-    unset DISPLAY
-    java -jar /usr/local/src/modefilter/target/Empirical_Null_Filter-*.jar "$@"
+    python "$@"

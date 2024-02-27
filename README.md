@@ -60,11 +60,11 @@ For example:
 
 Edit the file `Makefile`, replacing `-arch=sm_NN` with the code which
 corresponds to the architecture of your GPU. This occurs when defining
-`NVCCFLAGS`. For example with a K80 card, the `Makefile` should be edited so
+`NVCCFLAGS`. For example with a A100 card, the `Makefile` should be edited so
 that the definition of `NVCCLFAGS` should look like
 
 ```shell
-NVCCFLAGS	:= -arch=sm_37 --ptxas-options=-v --use_fast_math
+NVCCFLAGS	:= -arch=sm_80 --ptxas-options=-v --use_fast_math
 ```
 
 Compile the code into a `.ptx` file by calling
@@ -204,11 +204,15 @@ dependencies = [
 Please refer to the
 [CuPy installation documentation](https://docs.cupy.dev/en/stable/install.html).
 
-## Apptainer Definition Files
+## Apptainer
 
 [Apptainer](https://apptainer.org/) definition files are provided as a way to
-compile *CUDA* and *Java* code in a container as well as use it. To build the
-container
+compile *CUDA* and *Java* code in a container as well as use it. There is also
+a definition file which builds a wheel for *Python*.
+
+### Apptainer For Java (CPU)
+
+To build the container
 
 ```shell
 apptainer build modefilter-cpu.sif modefilter-cpu.def
@@ -230,7 +234,7 @@ apptainer exec \
     modefilter-cpu.sif cp -r /usr/local/src/modefilter/target <destination>
 ```
 
-### Apptainer Definition Files For GPU
+### Apptainer For Java (GPU)
 
 Identify the architecture of your GPU (as discussed previously here).
 For example:
@@ -243,7 +247,7 @@ Edit `modefilter-gpu.def` so that `nvcc_arch` has the correct architecture code,
 for example:
 
 * For an *Nvidia GeForce GTX 1660*
-  * `export nvcc_arch="-arch=sm_75"`
+  * `nvcc_arch="-arch=sm_75"`
 
 The container can be built
 
@@ -259,24 +263,37 @@ apptainer run --nv modefilter-gpu.sif run ['cpu' or 'gpu'] \
     <loc of image to filter> <loc to save resulting .png> [options]
 ```
 
+### Apptainer For Python (GPU)
+
+Similarly to the Apptainer for *Java*, edit `modefilter-python.def` so that
+`nvcc_arch` has the correct architecture code.
+
+The container can be built
+
+```shell
+apptainer build modefilter-python.sif modefilter-python.def
+```
+
+The compiled `.whl` file can be extracted using
+
+```shell
+apptainer exec \
+    modefilter-python.sif bash -c \
+    "cp /usr/local/src/modefilter/dist/modefilter-*.whl <destination>"
+```
+
+Running the container will run *Python* with the `modefilter` package available.
+
+```shell
+apptainer run --nv modefilter-python.sif run
+```
+
 ### Further Troubleshooting
 
 Depending on your GPU architecture, you may require an older version of the
 *Nvidia CUDA Toolkit*. For example, a *Nvidia Tesla K80* is supported by the
-*Nvidia CUDA Toolkit* version 10.1.
-
-The definition file `modefilter-k80.def` is provided, as an example or template,
-which:
-
-* Builds a container with the *Nvidia CUDA Toolkit* version 10.1 from Docker
-  * Investigate the available
-    [Docker images](https://hub.docker.com/r/nvidia/cuda/tags) and toolkit
-    versions which may be suitable for your GPU. Edit the definition file with
-    the desired version.
-  * Any Docker image with tag `devel` is required and `ubuntu` is recommended.
-* Compile the *CUDA* code using the corresponding GPU architecture
-  * Edit the definition of `nvcc_arch` with the correct architecture code.
-  * `export nvcc_arch="-arch=sm_37"`
+*Nvidia CUDA Toolkit* version 10.1. Refer to *Nvidia*'s *CUDA* toolkit
+[archive](https://developer.nvidia.com/cuda-toolkit-archive).
 
 ## About the Mode Filter
 
