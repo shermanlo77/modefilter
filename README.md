@@ -58,19 +58,11 @@ For example:
 * An *Nvidia GeForce GTX 1660* has a Turing architecture with code `sm_75`.
 * An *Nvidia A100* has an Ampere architecture with code `sm_80`.
 
-Edit the file `Makefile`, replacing `-arch=sm_NN` with the code which
-corresponds to the architecture of your GPU. This occurs when defining
-`NVCCFLAGS`. For example with a A100 card, the `Makefile` should be edited so
-that the definition of `NVCCLFAGS` should look like
+Compile the code into a `.ptx` file by calling `make` and providing the
+architecture. For example, for an *Nvidia A100* with code `sm_80`
 
 ```shell
-NVCCFLAGS	:= -arch=sm_80 --ptxas-options=-v --use_fast_math
-```
-
-Compile the code into a `.ptx` file by calling
-
-```shell
-make
+make NVCC_ARCH=sm_80
 ```
 
 The compiled `.ptx` file should be located in both `cuda/` and

@@ -18,8 +18,7 @@ From: ubuntu
     cd /usr/local/src
     git clone https://github.com/shermanlo77/modefilter.git
     cd modefilter
-    sed -i -r 's/sm_[0-9]+/'${nvcc_arch}'/g' Makefile
-    make
+    make NVCC_ARCH=${nvcc_arch}
     mvn package
 
 %runscript
