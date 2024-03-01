@@ -145,11 +145,11 @@ class EmpiricalNullFilter:
         # std
         # here, it determines if shared memory is used for the cache too, thus
         # the size of the shared memory
-        shared_memory_size, cache_pointer_width, is_copy_cache_to_shared = (
+        shared_memory_size, is_copy_cache_to_shared = (
             self._get_shared_memory_size(device, cache))
         # set __constant__ variables here
         self._set_cuda_parameters(module, image.shape, cache,
-                                  cache_pointer_width, is_copy_cache_to_shared)
+                                  is_copy_cache_to_shared)
 
         d_null_mean_roi, d_null_std_roi = self._call_cuda_kernel(
             module, image.shape, cache, initial_sigma_roi, bandwidth_roi,
@@ -232,8 +232,6 @@ class EmpiricalNullFilter:
 
         Returns:
             int: the size of the shared memory (in bytes per block)
-            int: cache_pointer_width, see kCachePointerWidth in
-                empiricalnullfilter.cu
             int: boolean, True if shared memory is big enough to store the image
                 plus pixels captured by the kernel in addition to the null mean
                 and null std. False if shared memory is only big enough to store
@@ -262,17 +260,14 @@ class EmpiricalNullFilter:
         if shared_memory_size > max_shared_size:
             shared_memory_size = (2 * self._block_dim_x * self._block_dim_y
                                     * ctypes.sizeof(ctypes.c_float))
-            cache_pointer_width = cache.size[1]
             is_copy_cache_to_shared = int(0)
         else:
-            cache_pointer_width = (
-                self._block_dim_x + 2 * self._kernel.get_radius())
             is_copy_cache_to_shared = int(1)
 
-        return shared_memory_size, cache_pointer_width, is_copy_cache_to_shared
+        return shared_memory_size, is_copy_cache_to_shared
 
     def _set_cuda_parameters(self, module, image_shape, cache,
-                             cache_pointer_width, is_copy_cache_to_shared):
+                             is_copy_cache_to_shared):
         """Set the __constant__ variables in the cuda module
 
         Set the __constant__ variables in the cuda module. They act as
@@ -283,7 +278,6 @@ class EmpiricalNullFilter:
                 kernel, as well as other constant/parameters
             image_shape (tuple): size two, the shape or size of the image
             cache (numpy.ndarray): the image padded
-            cache_pointer_width (int): return value of _get_shared_memory_size()
             is_copy_cache_to_shared (int): bool, return value of
                 _get_shared_memory_size()
         """
@@ -297,8 +291,6 @@ class EmpiricalNullFilter:
             module, "kKernelHeight", self._kernel.get_height())
         self._set_int_constant(module, "kNInitial", self._n_initial)
         self._set_int_constant(module, "kNStep", self._n_step)
-        self._set_int_constant(
-            module, "kCachePointerWidth", cache_pointer_width)
         self._set_int_constant(
             module, "kIsCopyImageToShared", is_copy_cache_to_shared)
 

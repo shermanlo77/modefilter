@@ -12,10 +12,6 @@
 //   enough, also the image. Size becomes a problem if the kernel radius becomes
 //   too big, in this case, the image lives in global memory and hopefully may
 //   be picked up in L1 and L2
-// set kCachePointerWidth = kCacheWidth if kIsCopyImageToShared is false, ie
-//   in global memory
-// set kCachePointerWidth = blockDim.x + 2*kKernelRadius if kIsCopyImageToShared
-//   is true, ie in shared memory
 __constant__ int kRoiWidth;      // region of interest width
 __constant__ int kRoiHeight;     // region of interest height
 __constant__ int kCacheWidth;    // width of the image (including padding)
@@ -23,9 +19,6 @@ __constant__ int kKernelRadius;  // the radius of the kernel
 __constant__ int kKernelHeight;  // the number of rows in the kernel
 __constant__ int kNInitial;      // number of initial values for Newton-Raphson
 __constant__ int kNStep;         // number of steps for Newton-Raphson
-__constant__ int
-    kCachePointerWidth;  // the width of memory space containing the image, can
-                         // be either in global or shared memory
 __constant__ int kIsCopyImageToShared;  // indicate to copy image to shared mem
 
 /**
@@ -34,7 +27,9 @@ __constant__ int kIsCopyImageToShared;  // indicate to copy image to shared mem
  * Set dx_lnf to contain derivatives of the density estimate evaluated at a
  * point
  *
- * @param cache_pointer the image to filter
+ * @param cache_pointer the image to filter, can either be in global or shared
+ *   memory
+ * @param cache_width the width of the image in cache_pointer
  * @param bandwidth parameter for the density estimate
  * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
  *   containing pairs of integers, indicates for each row the starting and
@@ -47,9 +42,9 @@ __constant__ int kIsCopyImageToShared;  // indicate to copy image to shared mem
  *     <li>the second derivative of the log density</li>
  *   </ol>
  */
-__device__ void GetDLnDensity(float* cache_pointer, float bandwidth,
-                              int* kernel_pointers, float* value,
-                              float* dx_lnf) {
+__device__ void GetDLnDensity(float* cache_pointer, int cache_width,
+                              float bandwidth, int* kernel_pointers,
+                              float* value, float* dx_lnf) {
   // variables when going through all pixels in the kernel
   float z;                       // value of a pixel when looping through kernel
   float sum_kernel[3] = {0.0f};  // store sums of weights
@@ -57,7 +52,7 @@ __device__ void GetDLnDensity(float* cache_pointer, float bandwidth,
 
   // pointer for the image
   // point to the top of the kernel
-  cache_pointer -= kKernelRadius * kCachePointerWidth;
+  cache_pointer -= kKernelRadius * cache_width;
 
   // for each row in the kernel
   for (int i = 0; i < 2 * kKernelHeight; i++) {
@@ -74,7 +69,7 @@ __device__ void GetDLnDensity(float* cache_pointer, float bandwidth,
         sum_kernel[2] += phi_z * z * z;
       }
     }
-    cache_pointer += kCachePointerWidth;
+    cache_pointer += cache_width;
   }
 
   // work out derivatives
@@ -96,7 +91,9 @@ __device__ void GetDLnDensity(float* cache_pointer, float bandwidth,
  * The second derivative of the log density and the density (up to a constant)
  * at the final answer is stored in second_diff_ln and density_at_mode.
  *
- * @param cache_pointer the image to filter
+ * @param cache_pointer the image to filter, can either be in global or shared
+ *   memory
+ * @param cache_width the width of the image in cache_pointer
  * @param bandwidth bandwidth for the density estimate
  * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
  *   containing pairs of integers, indicates for each row the starting and
@@ -109,16 +106,18 @@ __device__ void GetDLnDensity(float* cache_pointer, float bandwidth,
  *   the mode
  * @returns true if sucessful, false otherwise
  */
-__device__ bool FindMode(float* cache_pointer, float bandwidth,
+__device__ bool FindMode(float* cache_pointer, int cache_width, float bandwidth,
                          int* kernel_pointers, float* null_mean,
                          float* second_diff_ln, float* density_at_mode) {
   float dx_lnf[3];
   // kNStep of Newton-Raphson
   for (int i = 0; i < kNStep; i++) {
-    GetDLnDensity(cache_pointer, bandwidth, kernel_pointers, null_mean, dx_lnf);
+    GetDLnDensity(cache_pointer, cache_width, bandwidth, kernel_pointers,
+                  null_mean, dx_lnf);
     *null_mean -= dx_lnf[1] / dx_lnf[2];
   }
-  GetDLnDensity(cache_pointer, bandwidth, kernel_pointers, null_mean, dx_lnf);
+  GetDLnDensity(cache_pointer, cache_width, bandwidth, kernel_pointers,
+                null_mean, dx_lnf);
   // need to check if answer is valid
   if (isfinite(*null_mean) && isfinite(dx_lnf[0]) && isfinite(dx_lnf[1]) &&
       isfinite(dx_lnf[2]) && (dx_lnf[2] < 0)) {
@@ -133,15 +132,17 @@ __device__ bool FindMode(float* cache_pointer, float bandwidth,
  * Copy image to shared memory
  *
  * @param dest pointer to shared memory
+ * @param cache_in_block_width the size of the cache captured by the block,
+ *   including the padding
  * @param source pointer to image
  * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
  *   containing pairs of integers, indicates for each row the starting and
  *   ending column position from the centre of the kernel
  */
-__device__ void CopyImageToSharedMemory(float* dest, float* source,
-                                        int* kernel_pointers) {
+__device__ void CopyImageToSharedMemory(float* dest, int cache_in_block_width,
+                                        float* source, int* kernel_pointers) {
   // point to top left
-  dest -= kKernelRadius * kCachePointerWidth;
+  dest -= kKernelRadius * cache_in_block_width;
   source -= kKernelRadius * kCacheWidth;
   // for each row in the kernel
   for (int i = 0; i < 2 * kKernelHeight; i++) {
@@ -150,7 +151,7 @@ __device__ void CopyImageToSharedMemory(float* dest, float* source,
       *(dest + dx) = *(source + dx);
     }
     source += kCacheWidth;
-    dest += kCachePointerWidth;
+    dest += cache_in_block_width;
   }
 }
 
@@ -195,26 +196,40 @@ extern "C" __global__ void EmpiricalNullFilter(
   float* null_mean_shared_pointer = shared_memory;
   float* second_diff_shared_pointer =
       null_mean_shared_pointer + blockDim.x * blockDim.y;
-  float* cache_pointer;
+
 
   // offset by the x and y coordinates
   int roi_index = y0 * kRoiWidth + x0;
   int null_shared_index = threadIdx.y * blockDim.x + threadIdx.x;
 
+  // cache_pointer points to the image to filter (including padding)
+  // cache_pointer may either points to global or shared memory
+  // cache_width will specify the width of the cache according to if the cache
+  // is in global or shared memory
+  float* cache_pointer;
+  int cache_width;
+
   // if the shared memory is big enough, copy the image
   // cache_pointer points to shared memory if shared memory allows it, otherwise
   // points to global memory
   if (kIsCopyImageToShared) {
+    // width of the cache captured by a block, including the padding
+    // padding is of kKernelRadius size, on left and right
+    cache_width = blockDim.x + 2*kKernelRadius;
     cache_pointer = second_diff_shared_pointer + blockDim.x * blockDim.y;
-    cache_pointer += (threadIdx.y + kKernelRadius) * kCachePointerWidth +
+    cache_pointer += (threadIdx.y + kKernelRadius) * cache_width +
                      threadIdx.x + kKernelRadius;
     // copy image to shared memory
     if (is_in_roi) {
-      CopyImageToSharedMemory(cache_pointer, cache, kernel_pointers);
+      CopyImageToSharedMemory(cache_pointer, cache_width, cache,
+                              kernel_pointers);
     }
   } else {
+    // else keep the cache in global memory
+    cache_width = kCacheWidth;
     cache_pointer = cache;
   }
+
   __syncthreads();
 
   // adjust pointer to the corresponding x y coordinates
@@ -266,8 +281,9 @@ extern "C" __global__ void EmpiricalNullFilter(
 
   for (int i = 0; i < kNInitial; i++) {
     if (is_in_roi) {
-      is_success = FindMode(cache_pointer, bandwidth, kernel_pointers,
-                            &null_mean, &second_diff_ln, &density_at_mode);
+      is_success = FindMode(cache_pointer, cache_width, bandwidth,
+                            kernel_pointers, &null_mean, &second_diff_ln,
+                            &density_at_mode);
       // keep null_mean and nullStd with the highest density
       if (is_success) {
         if (density_at_mode > max_density_at_mode) {
