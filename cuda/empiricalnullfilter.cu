@@ -28,7 +28,7 @@ __constant__ int kIsCopyImageToShared;  // indicate to copy image to shared mem
  * point
  *
  * @param cache_pointer the image to filter, can either be in global or shared
- *   memory
+ *   memory, positioned at the centre of the kernel
  * @param cache_width the width of the image in cache_pointer
  * @param bandwidth parameter for the density estimate
  * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
@@ -92,7 +92,7 @@ __device__ void GetDLnDensity(float* cache_pointer, int cache_width,
  * at the final answer is stored in second_diff_ln and density_at_mode.
  *
  * @param cache_pointer the image to filter, can either be in global or shared
- *   memory
+ *   memory, positioned at the centre of the kernel
  * @param cache_width the width of the image in cache_pointer
  * @param bandwidth bandwidth for the density estimate
  * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
@@ -197,7 +197,6 @@ extern "C" __global__ void EmpiricalNullFilter(
   float* second_diff_shared_pointer =
       null_mean_shared_pointer + blockDim.x * blockDim.y;
 
-
   // offset by the x and y coordinates
   int roi_index = y0 * kRoiWidth + x0;
   int null_shared_index = threadIdx.y * blockDim.x + threadIdx.x;
@@ -215,10 +214,10 @@ extern "C" __global__ void EmpiricalNullFilter(
   if (kIsCopyImageToShared) {
     // width of the cache captured by a block, including the padding
     // padding is of kKernelRadius size, on left and right
-    cache_width = blockDim.x + 2*kKernelRadius;
+    cache_width = blockDim.x + 2 * kKernelRadius;
     cache_pointer = second_diff_shared_pointer + blockDim.x * blockDim.y;
-    cache_pointer += (threadIdx.y + kKernelRadius) * cache_width +
-                     threadIdx.x + kKernelRadius;
+    cache_pointer += (threadIdx.y + kKernelRadius) * cache_width + threadIdx.x +
+                     kKernelRadius;
     // copy image to shared memory
     if (is_in_roi) {
       CopyImageToSharedMemory(cache_pointer, cache_width, cache,
@@ -281,9 +280,9 @@ extern "C" __global__ void EmpiricalNullFilter(
 
   for (int i = 0; i < kNInitial; i++) {
     if (is_in_roi) {
-      is_success = FindMode(cache_pointer, cache_width, bandwidth,
-                            kernel_pointers, &null_mean, &second_diff_ln,
-                            &density_at_mode);
+      is_success =
+          FindMode(cache_pointer, cache_width, bandwidth, kernel_pointers,
+                   &null_mean, &second_diff_ln, &density_at_mode);
       // keep null_mean and nullStd with the highest density
       if (is_success) {
         if (density_at_mode > max_density_at_mode) {
@@ -314,5 +313,102 @@ extern "C" __global__ void EmpiricalNullFilter(
     null_mean_roi[roi_index] = *null_mean_shared_pointer;
     null_std_roi[roi_index] = powf(-*second_diff_shared_pointer, -0.5f);
     progress_roi[roi_index] = 1;
+  }
+}
+
+/**
+ * Get the (local) count, mean and std in a kernel
+ *
+ * @param cache_pointer the image to filter on global memory, positioned at the
+ *   centre of the kernel
+ * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
+ *   containing pairs of integers, indicates for each row the starting and
+ *   ending column position from the centre of the kernel
+ * @param count MODIFIED the resulting local count, ie number of finite elements
+ *   in the kernel
+ * @param mean MODIFIED the resulting local mean
+ * @param std MODIFIED the resulting local std
+ */
+__device__ void GetMeanStd(float* cache_pointer, int* kernel_pointers,
+                           int* count, float* mean, float* std) {
+  float z;  // value of a pixel when looping through kernel
+
+  // initial values
+  *count = 0;
+  *mean = {0.0f};
+  *std = {0.0f};
+
+  // pointer for the image
+  // point to the top of the kernel
+  float* cache_start = cache_pointer - kKernelRadius * kCacheWidth;
+
+  cache_pointer = cache_start;
+
+  // calculate count and mean here
+  // for each row in the kernel
+  for (int i = 0; i < 2 * kKernelHeight; i++) {
+    // for each column for this row
+    for (int dx = kernel_pointers[i++]; dx <= kernel_pointers[i]; dx++) {
+      z = *(cache_pointer + dx);
+      if (isfinite(z)) {
+        ++(*count);
+        *mean += z;
+      }
+    }
+    cache_pointer += kCacheWidth;
+  }
+  *mean /= (float)*count;
+
+  // given mean, calculate std
+  cache_pointer = cache_start;
+  // for each row in the kernel
+  for (int i = 0; i < 2 * kKernelHeight; i++) {
+    // for each column for this row
+    for (int dx = kernel_pointers[i++]; dx <= kernel_pointers[i]; dx++) {
+      z = *(cache_pointer + dx);
+      if (isfinite(z)) {
+        *std += (z - *mean) * (z - *mean);
+      }
+    }
+    cache_pointer += kCacheWidth;
+  }
+  *std /= (float)(*count - 1);
+  *std = sqrtf(*std);
+}
+
+/**
+ * Kernel: Mean and Standard Deviation Filter
+ *
+ * Does the mean and standard deviation filter on an image. It ignore non-finite
+ * elements. Also returns the local number of finite elements in the kernel.
+ * Non-finite elements occur at the padding.
+ *
+ * @param cache array of pixels to filter
+ * @param kernel_pointers: array (even number of elements, size 2*kKernelHeight)
+ *   containing pairs of integers, indicates for each row the starting and
+ *   ending column position from the centre of the kernel
+ * @param count_roi MODIFIED array of pixels (same size as ROI), pass results
+ *   with the local number of finite elements
+ * @param mean_roi MODIFIED array of pixels (same size as ROI), pass results of
+ *   the mean filter
+ * @param std_roi MODIFIED array of pixels (same size as ROI), pass results of
+ *   the std filter
+ */
+extern "C" __global__ void MeanStdFilter(float* cache, int* kernel_pointers,
+                                         int* count_roi, float* mean_roi,
+                                         float* std_roi) {
+  int x0 = threadIdx.x + blockIdx.x * blockDim.x;
+  int y0 = threadIdx.y + blockIdx.y * blockDim.y;
+  // adjust pointer to the corresponding x y coordinates
+  cache += (y0 + kKernelRadius) * kCacheWidth + x0 + kKernelRadius;
+  // check if in roi
+  bool is_in_roi = x0 < kRoiWidth && y0 < kRoiHeight;
+
+  // offset by the x and y coordinates
+  int roi_index = y0 * kRoiWidth + x0;
+
+  if (is_in_roi) {
+    GetMeanStd(cache, kernel_pointers, count_roi + roi_index,
+               mean_roi + roi_index, std_roi + roi_index);
   }
 }

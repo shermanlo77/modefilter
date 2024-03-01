@@ -3,8 +3,8 @@ from importlib.resources import files
 import math
 
 import cupy
+from cupyx.scipy import ndimage
 import numpy as np
-import scipy.ndimage
 
 
 PTX_FILE_PATH = str(
@@ -123,54 +123,58 @@ class EmpiricalNullFilter:
                 device, module, image)
         return (image-self._null_mean) / self._null_std
 
-    def _filter_image_on_gpu(self, device, module, image):
+    def _filter_image_on_gpu(self, device, module, h_image):
         """Run the empirical null gpu kernel
 
         Args:
             device (cupy.cuda.device.Device): device to run on
             module (cupy._core.raw.RawModule): contains the empirical null gpu
                 kernel, as well as other constant/parameters
-            image (numpy.ndarray): the image to filter on
+            h_image (numpy.ndarray): the image to filter on
 
         Returns:
             numpy.ndarray: null mean image on cpu
             numpy.ndarray: null std image on cpu
         """
         # cache is referred to the image with NaN padding
-        cache = self._pad_image(image)
-        # require some images before doing the empirical null filter
-        null_mean_roi, initial_sigma_roi, bandwidth_roi = (
-            self._get_prerequisite_images(image))
+        d_cache = self._pad_image(h_image)
+
         # shared memory is used to store the results of the null mean and null
         # std
         # here, it determines if shared memory is used for the cache too, thus
         # the size of the shared memory
         shared_memory_size, is_copy_cache_to_shared = (
-            self._get_shared_memory_size(device, cache))
+            self._get_shared_memory_size(device))
         # set __constant__ variables here
-        self._set_cuda_parameters(module, image.shape, cache,
+        self._set_cuda_parameters(module, h_image.shape, d_cache,
                                   is_copy_cache_to_shared)
 
+        # require some images before doing the empirical null filter
+        d_null_mean_roi, d_initial_sigma_roi, d_bandwidth_roi = (
+            self._get_prerequisite_images(module, h_image, d_cache)
+        )
+
         d_null_mean_roi, d_null_std_roi = self._call_cuda_kernel(
-            module, image.shape, cache, initial_sigma_roi, bandwidth_roi,
-            null_mean_roi, shared_memory_size)
+            module, h_image.shape, d_cache, d_initial_sigma_roi,
+            d_bandwidth_roi, d_null_mean_roi, shared_memory_size)
 
         # transfer from gpu to cpu
-        h_null_mean_roi = cupy.asnumpy(d_null_mean_roi)
-        h_null_std_roi = cupy.asnumpy(d_null_std_roi)
+        h_null_mean_roi = d_null_mean_roi.get()
+        h_null_std_roi = d_null_std_roi.get()
 
         return h_null_mean_roi, h_null_std_roi
 
     def _pad_image(self, image):
         """Pad the image with NaN
 
-        Pad the image with NaN, the size of the padding is the kernel radius
+        Pad the image with NaN, the size of the padding is the kernel radius.
+        Return value is on host.
 
         Args:
             image (numpy.ndarray): the image to pad
 
         Returns:
-            numpy.ndarray: the image padded
+            cupy.ndarray: the image padded
         """
         image_shape = image.shape
         padded_image = np.full(
@@ -179,9 +183,10 @@ class EmpiricalNullFilter:
         )
         padded_image[self._radius:(self._radius+image.shape[0]),
                      self._radius:(self._radius+image.shape[1])] = image
+        padded_image = cupy.asarray(padded_image, cupy.float32)
         return padded_image
 
-    def _get_prerequisite_images(self, image):
+    def _get_prerequisite_images(self, module, h_image, d_cache):
         """Get prerequisite images for the empirical null filter
 
         Prerequisite images include the median filter, standard deviation filter
@@ -189,37 +194,60 @@ class EmpiricalNullFilter:
         from the inter-quartile filter.
 
         Args:
-            image (numpy.ndarray): the image to filter
+            module (cupy._core.raw.RawModule): contains the empirical null gpu
+                kernel, as well as other constant/parameters
+            h_image (numpy.ndarray): the image to filter
+            d_cache (cupy.ndarray): the image padded
 
         Returns:
-            numpy.ndarray: median filtered image
-            numpy.ndarray: standard deviation filtered image (with some zero
+            cupy.ndarray: median filtered image
+            cupy.ndarray: standard deviation filtered image (with some zero
                 handling)
-            numpy.ndarray: image of bandwidth
+            cupy.ndarray: image of bandwidth
         """
-        footprint = self._kernel.get_footprint()
-        std = scipy.ndimage.generic_filter(image, np.std, footprint=footprint)
-        std[np.isclose(std, 0)] = self._std_for_zero
 
-        quartile_1 = scipy.ndimage.percentile_filter(
-            image, 25, footprint=footprint)
-        quartile_2 = scipy.ndimage.median_filter(
-            image, footprint=footprint)
-        quartile_3 = scipy.ndimage.percentile_filter(
-            image, 75, footprint=footprint)
+        kernel = module.get_function("MeanStdFilter")
+        footprint = cupy.asarray(self._kernel.get_footprint(), cupy.bool_)
 
-        iqr = (quartile_3 - quartile_1) / 1.34
+        d_image = cupy.asarray(h_image, cupy.float32)
 
-        bandwidth = np.minimum(std, iqr)
-        bandwidth[np.isclose(bandwidth, 0)] = self._std_for_zero
-        bandwidth *= (
+        d_quartile_1 = ndimage.percentile_filter(d_image, 25,
+                                                 footprint=footprint)
+        d_quartile_2 = ndimage.median_filter(d_image, footprint=footprint)
+        d_quartile_3 = ndimage.percentile_filter(d_image, 75,
+                                                 footprint=footprint)
+
+        d_count = cupy.empty(h_image.shape, cupy.int32)
+        d_mean = cupy.empty(h_image.shape, cupy.float32)
+        d_std = cupy.empty(h_image.shape, cupy.float32)
+
+        d_kernel_pointers = self._get_d_kernel_pointer()
+        # get number of blocks to run
+        n_block_x, n_block_y = self._get_n_block(h_image.shape)
+
+        kernel_args = (
+            d_cache, d_kernel_pointers, d_count, d_mean, d_std
+        )
+        kernel((n_block_x, n_block_y), (self._block_dim_x, self._block_dim_x),
+               kernel_args)
+        cupy.cuda.runtime.deviceSynchronize()
+
+        d_std[cupy.isclose(d_std, 0)] = self._std_for_zero
+
+        d_iqr = (d_quartile_3 - d_quartile_1) / 1.34
+
+        d_bandwidth = cupy.empty_like(d_image, cupy.float32)
+        d_bandwidth = cupy.minimum(d_std, d_iqr)
+        d_bandwidth[cupy.isclose(d_bandwidth, 0)] = self._std_for_zero
+
+        d_bandwidth *= (
             self._bandwidth_parameter_b *
-            math.pow(self._kernel.get_n_points(), -0.2)
+            cupy.power(d_count, -0.2, dtype=cupy.float32)
             + self._bandwidth_parameter_a)
 
-        return quartile_2, std, bandwidth
+        return d_quartile_2, d_std, d_bandwidth
 
-    def _get_shared_memory_size(self, device, cache):
+    def _get_shared_memory_size(self, device):
         """Set the size of the shared memory
 
         Set the size of the shared memory to contain the null mean and null
@@ -228,7 +256,6 @@ class EmpiricalNullFilter:
 
         Args:
             device (cupy.cuda.device.Device): device to run on
-            cache (numpy.ndarray): the image padded
 
         Returns:
             int: the size of the shared memory (in bytes per block)
@@ -277,7 +304,7 @@ class EmpiricalNullFilter:
             module (cupy._core.raw.RawModule): contains the empirical null gpu
                 kernel, as well as other constant/parameters
             image_shape (tuple): size two, the shape or size of the image
-            cache (numpy.ndarray): the image padded
+            cache (cupy.ndarray): the image padded
             is_copy_cache_to_shared (int): bool, return value of
                 _get_shared_memory_size()
         """
@@ -308,23 +335,26 @@ class EmpiricalNullFilter:
         device_var.copy_from_host(ctypes.addressof(host_var),
                                   ctypes.sizeof(host_var))
 
-    def _call_cuda_kernel(self, module, image_shape, cache, initial_sigma_roi,
-                          bandwidth_roi, null_mean_roi, shared_memory_size):
+    def _call_cuda_kernel(self, module, image_shape, d_cache,
+                          d_initial_sigma_roi, d_bandwidth_roi, d_null_mean_roi,
+                          shared_memory_size):
         """Call the cuda kernel for the empirical null filter
 
         Args:
             module (cupy._core.raw.RawModule): contains the empirical null gpu
                 kernel, as well as other constant/parameters
             image_shape (tuple): size two, the shape or size of the image
-            cache (numpy.ndarray): the image padded
-            initial_sigma_roi (numpy.ndarray): return value of
+            d_cache (cupy.ndarray): the image padded
+            d_initial_sigma_roi (cupy.ndarray): return value of
                 _get_prerequisite_images(), the standard deviation filter of the
                 image
-            bandwidth_roi (numpy.ndarray): return value of
+            d_bandwidth_roi (cupy.ndarray): return value of
                 _get_prerequisite_images(), the bandwidth for the density
                 estimate for each pixel
-            null_mean_roi (numpy.ndarray): return value of
-                _get_prerequisite_images(), the median filter of the image
+            d_null_mean_roi (cupy.ndarray): MODIFIED, return value of
+                _get_prerequisite_images(), the median filter of the image.
+                Modified to store results of the null mean, which is also
+                returned
             shared_memory_size (int): the size of the shared memory per block
                 in bytes
 
@@ -335,12 +365,7 @@ class EmpiricalNullFilter:
         kernel = module.get_function("EmpiricalNullFilter")
 
         # transfer all parameters to gpu
-        d_cache = cupy.asarray(cache, cupy.float32)
-        d_initial_sigma_roi = cupy.asarray(initial_sigma_roi, cupy.float32)
-        d_bandwidth_roi = cupy.asarray(bandwidth_roi, cupy.float32)
-        d_kernel_pointers = cupy.asarray(
-            self._kernel.get_pointer(), cupy.int32)
-        d_null_mean_roi = cupy.asarray(null_mean_roi, cupy.float32)
+        d_kernel_pointers = self._get_d_kernel_pointer()
         d_null_std_roi = cupy.empty_like(d_null_mean_roi, cupy.float32)
         d_progress_roi = cupy.zeros_like(d_null_mean_roi, cupy.int32)
 
@@ -350,10 +375,7 @@ class EmpiricalNullFilter:
         )
 
         # get number of blocks to run
-        n_block_x = (
-            (image_shape[1] + self._block_dim_x - 1) // self._block_dim_x)
-        n_block_y = (
-            (image_shape[0] + self._block_dim_y - 1) // self._block_dim_y)
+        n_block_x, n_block_y = self._get_n_block(image_shape)
 
         # call cuda kernel and wait for results
         kernel((n_block_x, n_block_y), (self._block_dim_x, self._block_dim_x),
@@ -361,6 +383,26 @@ class EmpiricalNullFilter:
         cupy.cuda.runtime.deviceSynchronize()
 
         return d_null_mean_roi, d_null_std_roi
+
+    def _get_n_block(self, image_shape):
+        """Get number of blocks required
+
+        Args:
+            image_shape (tuple): size two, the shape or size of the image
+
+        Returns:
+            int: number of blocks in x
+            int: number of blocks in y
+        """
+        n_block_x = (
+            (image_shape[1] + self._block_dim_x - 1) // self._block_dim_x)
+        n_block_y = (
+            (image_shape[0] + self._block_dim_y - 1) // self._block_dim_y)
+
+        return n_block_x, n_block_y
+
+    def _get_d_kernel_pointer(self):
+        return cupy.asarray(self._kernel.get_pointer(), cupy.int32)
 
 
 class _Kernel:
