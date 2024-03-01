@@ -34,9 +34,14 @@ Clone this repository and follow the instructions below in order:
 * If you require the use of a GPU (mandatory for the Python implementation),
   follow the instructions for compiling the *CUDA* code.
 * Afterwards, there are instructions for:
-  * Compiling the *Java* code into a `.jar` file. This can be used as an
-    *ImageJ* plugin or using the provided CLI
-  * Building the Python package and installing it
+  * Compiling the *Java* code into a `.jar` file. This is required for the use
+    of a GPU.
+  * Downloading the compiled `.jar`. files from Releases. Only CPU computation
+    is support with this method.
+  * How to install the `.jar` file as an *ImageJ* plugin and using the provided
+    CLI.
+  * Building the Python package and installing it. A GPU is required in the
+    Python implementation.
 
 ## Instructions For Compiling *CUDA* Code (for GPU)
 
@@ -68,9 +73,12 @@ make NVCC_ARCH=sm_80
 The compiled `.ptx` file should be located in both `cuda/` and
 `python/modefilter/`.
 
-## Instructions For Compiling Java Code (for both CPU and GPU)
+## Instructions For Compiling Java Code or Downloading From Releases
 
-Requires *Java Runtime Environment*, *Java Development Kit* and *Maven*.
+### Compiling Java Code (for both CPU and GPU)
+
+Requires *Java Runtime Environment*, *Java Development Kit* and *Maven*. For the
+use of the GPU, you must compile the *CUDA* beforehand.
 
 At `pom.xml`, run
 
@@ -83,12 +91,17 @@ to compile the *Java* code. The compiled `.jar` file should be located in
 Copies of required libraries are stored in `target/libs/` and would need to be
 installed in *ImageJ* as well.
 
-### Instructions For Installing And Using The ImageJ Plugin (*Fiji* recommended)
+### Downloading From Releases (CPU only)
 
-The required `.jar` files can be obtained by either compiling (CPU and GPU) or
-downloading from the
+Download `target.zip` from the
 [releases](https://github.com/shermanlo77/modefilter/releases) (CPU only) and
-extracting from `target.zip`.
+extract it.
+
+The compiled `.jar` file is named `Empirical_Null_Filter-*.*.*.jar` and can be
+used as an *ImageJ* plugin. Copies of required libraries are stored in `libs/`
+and would need to be installed in *ImageJ* as well.
+
+## Instructions For Installing And Using The ImageJ Plugin (*Fiji* recommended)
 
 Installation of `Empirical_Null_Filter-*.*.*.jar` can be done by copying the
 file into *Fiji*'s `plugins/` directory or, in *Fiji*, using the *Plugins* menu
@@ -131,8 +144,8 @@ They are:
 
 ### Using the CLI
 
-The mode filter can be used via the terminal. Go to `target/` and run the
-`.jar` file. To use a GUI for parameter selection
+The mode filter can be used via the terminal by calling the
+`Empirical_Null_Filter-x.x.x.jar` file. To use a GUI for parameter selection
 
 ```shell
 java -jar Empirical_Null_Filter-x.x.x.jar gui ['cpu' or 'gpu'] \
