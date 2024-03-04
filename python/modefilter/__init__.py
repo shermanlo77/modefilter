@@ -1,3 +1,54 @@
+"""Python API for the mode and empirical null filter - GPU ONLY
+
+The empirical null filter normalises an image using the empirical null mean
+filter (also known as the mode filter) and the empirical null std filter.
+The mode filter is an edge-preserving smoothing filter by taking the local mode
+of the empirical density. The empirical null std filter takes the local standard
+deviation of the empirical density.
+
+This code uses CuPy to interact with the cuda implementation of the empirical
+null filter. It requires the CUDA code to be compiled into a .ptx file
+beforehand. See PTX_FILE_PATH in this code and Makefile in the repo.
+
+To use, instantiate from EmpiricalNullFilter() or ModeFilter() and modify their
+options if needed. Then call filter(image) to filter the image.
+
+The GPU is used in the following filters:
+    - counting the number of finite elements in the kernel using the custom cuda
+        module (see _get_prerequisite_images() and d_count)
+    - std filter using the custom cuda module (see _get_prerequisite_images())
+    - median filter of the image using cupyx.scipy.ndimage (see
+        _get_prerequisite_images())
+    - quartile filter of the image using cupyx.scipy.ndimage (see
+        _get_prerequisite_images())
+    - empirical null filter of the image using the custom module (see
+        _call_cuda_kernel())
+
+Example:
+
+import cupy
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.random
+import skimage.data
+
+import modefilter
+
+image = skimage.data.coffee()[:, :, 0]
+
+plt.figure()
+plt.imshow(image)
+plt.show()
+
+filter = modefilter.ModeFilter(30)
+filter.set_n_initial(100)
+filtered = filter.filter(image)
+
+plt.figure()
+plt.imshow(filtered)
+plt.show()
+"""
+
 import ctypes
 from importlib.resources import files
 import math
@@ -23,6 +74,24 @@ class EmpiricalNullFilter:
         - call filter.filter(image) which returns the filtered image
         - call filter.get_null_mean() or filter.get_null_std() to get the
               the null mean or null std image
+
+    Attributes:
+        _radius (float): radius of the kernel
+        _n_initial (int): number of initial points for the Newton method
+        _n_step (int): number of steps for the Newton method
+        _bandwidth_parameter_a (float): bandwidth parameter A for density
+            estimate
+        _bandwidth_parameter_b (float): bandwidth parameter B for density
+            estimate
+        _block_dim_x (int): x block dimension for GPU
+        _block_dim_y (int): y block dimension for GPU
+        _std_for_zero (float): value to replace zero value pixels when doing
+            std filtering
+        _null_mean (numpy.ndarray): the resulting empirical null mean or mode
+            filter after calling filter()
+        _null_std (numpy.ndarray): the resulting empirical null std after
+            calling filter()
+        _kernel (_Kernel): the kernel used in filtering
     """
 
     def __init__(self, radius):
@@ -47,7 +116,7 @@ class EmpiricalNullFilter:
         self._n_initial = n_initial
 
     def set_n_step(self, n_step):
-        """Set the number of stepsfor the Newton method
+        """Set the number of steps for the Newton method
 
         Args:
             n_step (int): Number of steps for Newton method
@@ -403,6 +472,22 @@ class EmpiricalNullFilter:
 
     def _get_d_kernel_pointer(self):
         return cupy.asarray(self._kernel.get_pointer(), cupy.int32)
+
+
+class ModeFilter(EmpiricalNullFilter):
+    """Mode filter using GPU
+
+    Get the mode filtered image
+
+    How to use:
+        - construct the filter filter = Modefilter(radius)
+        - set optional parameters, for example, filter.set_n_initial(100)
+        - call filter.filter(image) which returns the mode image
+    """
+
+    def filter(self, image):
+        super().filter(image)
+        return self.get_null_mean()
 
 
 class _Kernel:
