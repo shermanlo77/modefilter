@@ -53,7 +53,7 @@ public class Empirical_Null_Filter extends EmpiricalNullFilter {
 
   public static void main(String[] args) throws Exception {
     System.out.println("MIT License - please see LICENSE");
-    System.out.println("Copyright (c) 2019-2024 Sherman Lo");
+    System.out.println("Copyright (c) 2019-2025 Sherman Lo");
     System.out.println("Please see https://github.com/shermanlo77/modefilter or README.md");
     System.out.println();
 

@@ -1,7 +1,7 @@
 # Mode Filter and Empirical Null Filter
 
 * MIT License - all source code
-* Copyright (c) 2020-2024 Sherman Lo
+* Copyright (c) 2020-2025 Sherman Lo
 
 The mode filter is an edge-preserving smoothing filter by taking the local mode
 of the empirical density. This may have applications in image processing such as
@@ -52,16 +52,16 @@ include an *nvcc* compiler.
 Older versions of the *Nvidia CUDA Development Kit* can be found in the
 [archive](https://developer.nvidia.com/cuda-toolkit-archive).
 
-Identify the architecture of your GPU by looking it up in the manual for
-the [NVIDIA CUDA Compiler Driver NVCC Section 5.2](https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/)
+Identify the architecture of your GPU by looking it up in the [CUDA
+GPU compilation documentation](https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/#gpu-feature-list)
 or other sources such as
 [this](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/).
 For example:
 
-* An *Nvidia Tesla K80* has a Kepler architecture with code `sm_37`.
-* An *Nvidia Tesla V100* has a Volta architecture with code `sm_70`.
+* An *Nvidia V100* has a Volta architecture with code `sm_70`.
 * An *Nvidia GeForce GTX 1660* has a Turing architecture with code `sm_75`.
 * An *Nvidia A100* has an Ampere architecture with code `sm_80`.
+* An *Nvidia H100* has an Ampere architecture with code `sm_90`.
 
 Compile the code into a `.ptx` file by calling `make` and providing the
 architecture. For example, for an *Nvidia A100* with code `sm_80`
@@ -73,7 +73,10 @@ make NVCC_ARCH=sm_80
 The compiled `.ptx` file should be located in both `cuda/` and
 `python/modefilter/`.
 
-## Instructions For Compiling Java Code or Downloading From Releases
+## Installing Instructions
+
+Installation can be done from compiling from source, or downloading from
+Releases (CPU only).
 
 ### Compiling Java Code (for both CPU and GPU)
 
@@ -86,10 +89,13 @@ At `pom.xml`, run
 mvn package
 ```
 
-to compile the *Java* code. The compiled `.jar` file should be located in
-`target/Empirical_Null_Filter-*.*.*.jar` and can be used as an *ImageJ* plugin.
-Copies of required libraries are stored in `target/libs/` and would need to be
-installed in *ImageJ* as well.
+to compile the *Java* code.
+
+* The compiled `.jar` file is called `target/Empirical_Null_Filter-*.*.*.jar`.
+  This is the main the *ImageJ* plugin. Copy it to `Fiji.app/plugins/` or
+  similar.
+* Copies of required libraries are in `target/libs/`. If required, copy them to
+  `Fiji.app/jars/` or similar.
 
 ### Downloading From Releases (CPU only)
 
@@ -97,24 +103,16 @@ Download `target.zip` from the
 [releases](https://github.com/shermanlo77/modefilter/releases) (CPU only) and
 extract it.
 
-The compiled `.jar` file is named `Empirical_Null_Filter-*.*.*.jar` and can be
-used as an *ImageJ* plugin. Copies of required libraries are stored in `libs/`
-and would need to be installed in *ImageJ* as well.
+* The compiled `.jar` file is called `Empirical_Null_Filter-*.*.*.jar`. This is
+  the main the *ImageJ* plugin. Copy it to `Fiji.app/plugins/` or similar.
+* Copies of required libraries are in `libs/`. If required, copy them to
+  `Fiji.app/jars/` or similar.
 
-## Instructions For Installing And Using The ImageJ Plugin (*Fiji* recommended)
-
-Installation of `Empirical_Null_Filter-*.*.*.jar` can be done by copying the
-file into *Fiji*'s `plugins/` directory or, in *Fiji*, using the *Plugins* menu
-followed by *Install...* (or Ctrl + Shift + M).
-
-The required `.jar` libraries are to be copied into *Fiji*'s `jars/` directory.
-They are:
-
-* `commons-math3-3.6.1.jar` (may already be provided)
-* `jcuda-10.1.0.jar` (for GPU usage)
-* `jcuda-natives-10.1.0-linux-x86_64.jar` (or similar for GPU usage)
+## How to Use
 
 ### ImageJ Options
+
+[*Fiji*](https://imagej.net/software/fiji/) recommended.
 
 ![Screenshot of the GUI](filter_gui.png)
 
@@ -176,44 +174,30 @@ where the options are
 
 ## Instructions For Building and Installing the Python Package
 
-Requires `setuptools`. Verify the compiled `.ptx` file is located in
-`python/modefilter/`.
+Requires the latest version of `build`. Verify the compiled `.ptx` file is
+located in `python/modefilter/`.
 
-At `pyproject.toml`, run
-
-```shell
-python -m build
-```
-
-which will build the package. To install it, run
+At `pyproject.toml`, in a virtual environment, run
 
 ```shell
-pip install dist/modefilter*.whl
+pip install .
+pip install .[cuda12x]
 ```
 
 ### Troubleshooting *CuPy*
 
 You may require a version of *CuPy* which uses a specific version of *CUDA*. In
-that case, you may edit the file `pyproject.toml` with the version of *CuPy*
-you want. For example, if you require *CuPy* with *CUDA* 11, edit the
-`dependencies` to contain
+that case, for example, you can use `pip install .[cuda11x]` to use CUDA 11.
 
-```toml
-dependencies = [
-    "numpy",
-    "scipy",
-    "cupy-cuda11x",
-]
-```
-
-Please refer to the
+Please refer to `pyproject.toml` and the
 [CuPy installation documentation](https://docs.cupy.dev/en/stable/install.html).
 
 ## Apptainer
 
 [Apptainer](https://apptainer.org/) definition files are provided as a way to
 compile *CUDA* and *Java* code in a container as well as use it. There is also
-a definition file which builds a wheel for *Python*.
+a definition file for *Python* package. These may also be useful in further
+troubleshooting.
 
 ### Apptainer For Java (CPU)
 
@@ -244,9 +228,10 @@ apptainer exec \
 Identify the architecture of your GPU (as discussed previously here).
 For example:
 
-* An *Nvidia Tesla V100* has a Volta architecture with code `sm_70`.
+* An *Nvidia V100* has a Volta architecture with code `sm_70`.
 * An *Nvidia GeForce GTX 1660* has a Turing architecture with code `sm_75`.
 * An *Nvidia A100* has an Ampere architecture with code `sm_80`.
+* An *Nvidia H100* has an Ampere architecture with code `sm_90`.
 
 Edit `modefilter-gpu.def` so that `nvcc_arch` has the correct architecture code,
 for example:
@@ -268,6 +253,13 @@ apptainer run --nv modefilter-gpu.sif run ['cpu' or 'gpu'] \
     <loc of image to filter> <loc to save resulting .png> [options]
 ```
 
+The compiled `.jar` files can be extracted using
+
+```shell
+apptainer exec \
+    modefilter-gpu.sif cp -r /usr/local/src/modefilter/target <destination>
+```
+
 ### Apptainer For Python (GPU)
 
 Similarly to the Apptainer for *Java*, edit `modefilter-python.def` so that
@@ -279,24 +271,18 @@ The container can be built
 apptainer build modefilter-python.sif modefilter-python.def
 ```
 
-The compiled `.whl` file can be extracted using
-
-```shell
-apptainer exec \
-    modefilter-python.sif bash -c \
-    "cp /usr/local/src/modefilter/dist/modefilter-*.whl <destination>"
-```
-
 Running the container will run *Python* with the `modefilter` package available.
 
 ```shell
-apptainer run --nv modefilter-python.sif run
+apptainer run --nv modefilter-python.sif
 ```
+
+The definition file in `modefilter-python-cuda11.def` uses CUDA 11 instead.
 
 ### Further Troubleshooting
 
 Depending on your GPU architecture, you may require an older version of the
-*Nvidia CUDA Toolkit*. For example, a *Nvidia Tesla K80* is supported by the
+*Nvidia CUDA Toolkit*. For example, a *Nvidia K80* is supported by the
 *Nvidia CUDA Toolkit* version 10.1. Refer to *Nvidia*'s *CUDA* toolkit
 [archive](https://developer.nvidia.com/cuda-toolkit-archive).
 

@@ -7,7 +7,7 @@ From: ubuntu
 %post
     apt update
     apt install -y git
-    apt install -y openjdk-11-jdk
+    apt install -y default-jdk
     apt install -y maven
 
     cd /usr/local/src
@@ -16,5 +16,4 @@ From: ubuntu
     mvn package
 
 %runscript
-    unset DISPLAY
     java -jar /usr/local/src/modefilter/target/Empirical_Null_Filter-*.jar "$@"

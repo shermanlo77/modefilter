@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>uk.ac.warwick.sip</groupId>
   <artifactId>Empirical_Null_Filter</artifactId>
-  <version>2.4.0</version>
+  <version>2.4.1</version>
   <packaging>jar</packaging>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -41,7 +41,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
-        <version>3.1.0</version>
+        <version>3.4.2</version>
         <configuration>
           <archive>
             <manifest>
@@ -55,10 +55,10 @@
 
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.7.0</version>
+        <version>3.14.0</version>
         <configuration>
-          <source>1.7</source>
-          <target>1.7</target>
+          <source>1.8</source>
+          <target>1.8</target>
         </configuration>
       </plugin>
 
@@ -69,18 +69,18 @@
     <dependency>
       <groupId>net.imagej</groupId>
       <artifactId>ij</artifactId>
-      <version>1.52g</version>
+      <version>1.54p</version>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-math3</artifactId>
       <version>3.6.1</version>
-     </dependency>
-     <dependency>
-       <groupId>org.jcuda</groupId>
-       <artifactId>jcuda</artifactId>
-       <version>10.1.0</version>
-     </dependency>
+    </dependency>
+    <dependency>
+      <groupId>org.jcuda</groupId>
+      <artifactId>jcuda</artifactId>
+      <version>12.6.0</version>
+    </dependency>
   </dependencies>
 
 </project>

@@ -5,11 +5,11 @@ From: ubuntu
     export LC_ALL=C
 
 %post
-    nvcc_arch="sm_75"
+    nvcc_arch="sm_80"
 
     apt update
     apt install -y git
-    apt install -y openjdk-11-jdk
+    apt install -y default-jdk
     apt install -y maven
     apt install -y gcc
     apt install -y nvidia-cuda-toolkit
@@ -22,5 +22,4 @@ From: ubuntu
     mvn package
 
 %runscript
-    unset DISPLAY
     java -jar /usr/local/src/modefilter/target/Empirical_Null_Filter-*.jar "$@"

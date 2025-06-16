@@ -1,5 +1,5 @@
 BootStrap: docker
-From: ubuntu
+From: ubuntu:22.04
 
 %environment
     export LC_ALL=C
@@ -7,7 +7,7 @@ From: ubuntu
 
 %post
     nvcc_arch="sm_80"
-    cupy_version="cuda12x"
+    cupy_version="cuda11x"
 
     apt update
     apt install -y git
