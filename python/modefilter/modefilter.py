@@ -76,7 +76,6 @@ class EmpiricalNullFilter:
               the null mean or null std image
 
     Attributes:
-        _radius (float): radius of the kernel
         _n_initial (int): number of initial points for the Newton method
         _n_step (int): number of steps for the Newton method
         _bandwidth_parameter_a (float): bandwidth parameter A for density
@@ -95,7 +94,6 @@ class EmpiricalNullFilter:
     """
 
     def __init__(self, radius):
-        self._radius = radius
         self._n_initial = 3
         self._n_step = 10
         self._bandwidth_parameter_a = 0.16
@@ -105,7 +103,7 @@ class EmpiricalNullFilter:
         self._std_for_zero = 0.289
         self._null_mean = None
         self._null_std = None
-        self._kernel = _Kernel(self._radius)
+        self._kernel = _Kernel(radius)
 
     def set_n_initial(self, n_initial):
         """Set the number of initial points for the Newton method
@@ -246,12 +244,14 @@ class EmpiricalNullFilter:
             cupy.ndarray: the image padded
         """
         image_shape = image.shape
+        kernel_radius = self._kernel.get_radius()
         padded_image = np.full(
-            (image_shape[0] + 2*self._radius, image_shape[1] + 2*self._radius),
+            (image_shape[0] + 2*kernel_radius, image_shape[1]
+             + 2*kernel_radius),
             math.nan
         )
-        padded_image[self._radius:(self._radius+image.shape[0]),
-                     self._radius:(self._radius+image.shape[1])] = image
+        padded_image[kernel_radius:(kernel_radius+image.shape[0]),
+                     kernel_radius:(kernel_radius+image.shape[1])] = image
         padded_image = cupy.asarray(padded_image, cupy.float32)
         return padded_image
 
