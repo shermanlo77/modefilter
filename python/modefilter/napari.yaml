@@ -1,0 +1,21 @@
+name: modefilter
+display_name: Mode Filter
+visibility: public
+contributions:
+  commands:
+    - id: modefilter.make_modefilter_container_widget
+      python_name: modefilter:ModeFilterContainer
+      title: Mode filter
+    - id: modefilter.make_empiricalnull_container_widget
+      python_name: modefilter:EmpiricalNullFilterContainer
+      title: Empirical null filter
+  widgets:
+    - command: modefilter.make_modefilter_container_widget
+      display_name: Mode Filter
+    - command: modefilter.make_empiricalnull_container_widget
+      display_name: Empirical null filter
+  menus:
+    napari/layers/segment:
+      - command: modefilter.make_modefilter_container_widget
+    napari/layers/segment:
+      - command: modefilter.make_empiricalnull_container_widget
