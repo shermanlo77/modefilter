@@ -58,8 +58,7 @@ from cupyx.scipy import ndimage
 import numpy as np
 
 
-PTX_FILE_PATH = str(
-    files("modefilter").joinpath("empiricalnullfilter.ptx"))
+PTX_FILE_PATH = str(files("modefilter").joinpath("empiricalnullfilter.ptx"))
 
 
 class EmpiricalNullFilter:
@@ -187,8 +186,9 @@ class EmpiricalNullFilter:
         with cupy.cuda.Device() as device:
             module = cupy.RawModule(path=PTX_FILE_PATH)
             self._null_mean, self._null_std = self._filter_image_on_gpu(
-                device, module, image)
-        return (image-self._null_mean) / self._null_std
+                device, module, image
+            )
+        return (image - self._null_mean) / self._null_std
 
     def _filter_image_on_gpu(self, device, module, h_image):
         """Run the empirical null gpu kernel
@@ -211,10 +211,12 @@ class EmpiricalNullFilter:
         # here, it determines if shared memory is used for the cache too, thus
         # the size of the shared memory
         shared_memory_size, is_copy_cache_to_shared = (
-            self._get_shared_memory_size(device))
+            self._get_shared_memory_size(device)
+        )
         # set __constant__ variables here
-        self._set_cuda_parameters(module, h_image.shape, d_cache,
-                                  is_copy_cache_to_shared)
+        self._set_cuda_parameters(
+            module, h_image.shape, d_cache, is_copy_cache_to_shared
+        )
 
         # require some images before doing the empirical null filter
         d_null_mean_roi, d_initial_sigma_roi, d_bandwidth_roi = (
@@ -222,8 +224,14 @@ class EmpiricalNullFilter:
         )
 
         d_null_mean_roi, d_null_std_roi = self._call_cuda_kernel(
-            module, h_image.shape, d_cache, d_initial_sigma_roi,
-            d_bandwidth_roi, d_null_mean_roi, shared_memory_size)
+            module,
+            h_image.shape,
+            d_cache,
+            d_initial_sigma_roi,
+            d_bandwidth_roi,
+            d_null_mean_roi,
+            shared_memory_size,
+        )
 
         # transfer from gpu to cpu
         h_null_mean_roi = d_null_mean_roi.get()
@@ -246,12 +254,16 @@ class EmpiricalNullFilter:
         image_shape = image.shape
         kernel_radius = self._kernel.get_radius()
         padded_image = np.full(
-            (image_shape[0] + 2*kernel_radius, image_shape[1]
-             + 2*kernel_radius),
-            math.nan
+            (
+                image_shape[0] + 2 * kernel_radius,
+                image_shape[1] + 2 * kernel_radius,
+            ),
+            math.nan,
         )
-        padded_image[kernel_radius:(kernel_radius+image.shape[0]),
-                     kernel_radius:(kernel_radius+image.shape[1])] = image
+        padded_image[
+            kernel_radius : (kernel_radius + image.shape[0]),
+            kernel_radius : (kernel_radius + image.shape[1]),
+        ] = image
         padded_image = cupy.asarray(padded_image, cupy.float32)
         return padded_image
 
@@ -280,11 +292,13 @@ class EmpiricalNullFilter:
 
         d_image = cupy.asarray(h_image, cupy.float32)
 
-        d_quartile_1 = ndimage.percentile_filter(d_image, 25,
-                                                 footprint=footprint)
+        d_quartile_1 = ndimage.percentile_filter(
+            d_image, 25, footprint=footprint
+        )
         d_quartile_2 = ndimage.median_filter(d_image, footprint=footprint)
-        d_quartile_3 = ndimage.percentile_filter(d_image, 75,
-                                                 footprint=footprint)
+        d_quartile_3 = ndimage.percentile_filter(
+            d_image, 75, footprint=footprint
+        )
 
         d_count = cupy.empty(h_image.shape, cupy.int32)
         d_mean = cupy.empty(h_image.shape, cupy.float32)
@@ -294,11 +308,12 @@ class EmpiricalNullFilter:
         # get number of blocks to run
         n_block_x, n_block_y = self._get_n_block(h_image.shape)
 
-        kernel_args = (
-            d_cache, d_kernel_pointers, d_count, d_mean, d_std
+        kernel_args = (d_cache, d_kernel_pointers, d_count, d_mean, d_std)
+        kernel(
+            (n_block_x, n_block_y),
+            (self._block_dim_x, self._block_dim_x),
+            kernel_args,
         )
-        kernel((n_block_x, n_block_y), (self._block_dim_x, self._block_dim_x),
-               kernel_args)
         cupy.cuda.runtime.deviceSynchronize()
 
         d_std[cupy.isclose(d_std, 0)] = self._std_for_zero
@@ -310,9 +325,10 @@ class EmpiricalNullFilter:
         d_bandwidth[cupy.isclose(d_bandwidth, 0)] = self._std_for_zero
 
         d_bandwidth *= (
-            self._bandwidth_parameter_b *
-            cupy.power(d_count, -0.2, dtype=cupy.float32)
-            + self._bandwidth_parameter_a)
+            self._bandwidth_parameter_b
+            * cupy.power(d_count, -0.2, dtype=cupy.float32)
+            + self._bandwidth_parameter_a
+        )
 
         return d_quartile_2, d_std, d_bandwidth
 
@@ -342,11 +358,9 @@ class EmpiricalNullFilter:
         #           by the kernel
         #           size ((self._block_dim_x + 2 * self._kernel.get_radius())
         #                 * (self._block_dim_y + 2 * self._kernel.get_radius()))
-        shared_memory_size = (
-            2 * self._block_dim_x * self._block_dim_y
-            + (self._block_dim_x + 2 * self._kernel.get_radius())
-            * (self._block_dim_y + 2 * self._kernel.get_radius())
-        )
+        shared_memory_size = 2 * self._block_dim_x * self._block_dim_y + (
+            self._block_dim_x + 2 * self._kernel.get_radius()
+        ) * (self._block_dim_y + 2 * self._kernel.get_radius())
         shared_memory_size *= ctypes.sizeof(ctypes.c_float)
 
         max_shared_size = device.attributes["MaxSharedMemoryPerBlock"]
@@ -354,16 +368,21 @@ class EmpiricalNullFilter:
         # if the requested shared memory is too large, then shared memory
         # only contains the null mean in the block and the null std in the block
         if shared_memory_size > max_shared_size:
-            shared_memory_size = (2 * self._block_dim_x * self._block_dim_y
-                                    * ctypes.sizeof(ctypes.c_float))
+            shared_memory_size = (
+                2
+                * self._block_dim_x
+                * self._block_dim_y
+                * ctypes.sizeof(ctypes.c_float)
+            )
             is_copy_cache_to_shared = int(0)
         else:
             is_copy_cache_to_shared = int(1)
 
         return shared_memory_size, is_copy_cache_to_shared
 
-    def _set_cuda_parameters(self, module, image_shape, cache,
-                             is_copy_cache_to_shared):
+    def _set_cuda_parameters(
+        self, module, image_shape, cache, is_copy_cache_to_shared
+    ):
         """Set the __constant__ variables in the cuda module
 
         Set the __constant__ variables in the cuda module. They act as
@@ -379,16 +398,18 @@ class EmpiricalNullFilter:
         """
         self._set_int_constant(module, "kRoiWidth", image_shape[1])
         self._set_int_constant(module, "kRoiHeight", image_shape[0])
-        self._set_int_constant(module, "kCacheWidth",
-                               cache.shape[1])
+        self._set_int_constant(module, "kCacheWidth", cache.shape[1])
         self._set_int_constant(
-            module, "kKernelRadius", self._kernel.get_radius())
+            module, "kKernelRadius", self._kernel.get_radius()
+        )
         self._set_int_constant(
-            module, "kKernelHeight", self._kernel.get_height())
+            module, "kKernelHeight", self._kernel.get_height()
+        )
         self._set_int_constant(module, "kNInitial", self._n_initial)
         self._set_int_constant(module, "kNStep", self._n_step)
         self._set_int_constant(
-            module, "kIsCopyImageToShared", is_copy_cache_to_shared)
+            module, "kIsCopyImageToShared", is_copy_cache_to_shared
+        )
 
     def _set_int_constant(self, module, constant_name, value):
         """Set the __constant__ variables in the cuda module with an int
@@ -401,12 +422,20 @@ class EmpiricalNullFilter:
         """
         device_var = module.get_global(constant_name)
         host_var = ctypes.c_int32(value)
-        device_var.copy_from_host(ctypes.addressof(host_var),
-                                  ctypes.sizeof(host_var))
+        device_var.copy_from_host(
+            ctypes.addressof(host_var), ctypes.sizeof(host_var)
+        )
 
-    def _call_cuda_kernel(self, module, image_shape, d_cache,
-                          d_initial_sigma_roi, d_bandwidth_roi, d_null_mean_roi,
-                          shared_memory_size):
+    def _call_cuda_kernel(
+        self,
+        module,
+        image_shape,
+        d_cache,
+        d_initial_sigma_roi,
+        d_bandwidth_roi,
+        d_null_mean_roi,
+        shared_memory_size,
+    ):
         """Call the cuda kernel for the empirical null filter
 
         Args:
@@ -439,16 +468,25 @@ class EmpiricalNullFilter:
         d_progress_roi = cupy.zeros_like(d_null_mean_roi, cupy.int32)
 
         kernel_args = (
-            d_cache, d_initial_sigma_roi, d_bandwidth_roi,
-            d_kernel_pointers, d_null_mean_roi, d_null_std_roi, d_progress_roi
+            d_cache,
+            d_initial_sigma_roi,
+            d_bandwidth_roi,
+            d_kernel_pointers,
+            d_null_mean_roi,
+            d_null_std_roi,
+            d_progress_roi,
         )
 
         # get number of blocks to run
         n_block_x, n_block_y = self._get_n_block(image_shape)
 
         # call cuda kernel and wait for results
-        kernel((n_block_x, n_block_y), (self._block_dim_x, self._block_dim_x),
-               kernel_args, shared_mem=shared_memory_size)
+        kernel(
+            (n_block_x, n_block_y),
+            (self._block_dim_x, self._block_dim_x),
+            kernel_args,
+            shared_mem=shared_memory_size,
+        )
         cupy.cuda.runtime.deviceSynchronize()
 
         return d_null_mean_roi, d_null_std_roi
@@ -464,9 +502,11 @@ class EmpiricalNullFilter:
             int: number of blocks in y
         """
         n_block_x = (
-            (image_shape[1] + self._block_dim_x - 1) // self._block_dim_x)
+            image_shape[1] + self._block_dim_x - 1
+        ) // self._block_dim_x
         n_block_y = (
-            (image_shape[0] + self._block_dim_y - 1) // self._block_dim_y)
+            image_shape[0] + self._block_dim_y - 1
+        ) // self._block_dim_y
 
         return n_block_x, n_block_y
 
@@ -503,19 +543,17 @@ class _Kernel:
     """
 
     def __init__(self, radius):
-
         # see Kernel.java for these special cases
-        if (radius >= 1.5 and radius < 1.75):
+        if radius >= 1.5 and radius < 1.75:
             radius = 1.75
-        elif (radius >= 2.5 and radius < 2.85):
+        elif radius >= 2.5 and radius < 2.85:
             radius = 2.85
 
         radius_squared = math.floor((radius * radius) + 1)
         self._kernel_radius = math.floor(math.sqrt(radius_squared + 1e-10))
         self._kernel_height = 2 * self._kernel_radius + 1
 
-        self._kernel_pointer = np.empty(
-            2 * self._kernel_height, dtype=np.int32)
+        self._kernel_pointer = np.empty(2 * self._kernel_height, dtype=np.int32)
 
         self._kernel_pointer[2 * self._kernel_radius] = -self._kernel_radius
         self._kernel_pointer[2 * self._kernel_radius + 1] = self._kernel_radius
@@ -525,7 +563,8 @@ class _Kernel:
         for row_id in range(self._kernel_radius):
             row_id += 1
             dist = math.floor(
-                math.sqrt(radius_squared - row_id * row_id + 1e-10))
+                math.sqrt(radius_squared - row_id * row_id + 1e-10)
+            )
             self._kernel_pointer[2 * (self._kernel_radius - row_id)] = -dist
             self._kernel_pointer[2 * (self._kernel_radius - row_id) + 1] = dist
             self._kernel_pointer[2 * (self._kernel_radius + row_id)] = -dist
@@ -553,9 +592,12 @@ class _Kernel:
                 considered in the filter, else False
         """
         footprint = np.zeros(
-            (self._kernel_height, self._kernel_height), np.bool_)
+            (self._kernel_height, self._kernel_height), np.bool_
+        )
         for i_row in range(self._kernel_height):
-            j_start = self._kernel_pointer[2*i_row] + self._kernel_radius
-            j_end = self._kernel_pointer[2*i_row + 1] + 1 + self._kernel_radius
+            j_start = self._kernel_pointer[2 * i_row] + self._kernel_radius
+            j_end = (
+                self._kernel_pointer[2 * i_row + 1] + 1 + self._kernel_radius
+            )
             footprint[i_row, j_start:j_end] = True
         return footprint
