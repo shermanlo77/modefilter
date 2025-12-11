@@ -503,10 +503,6 @@ class _Kernel:
     """
 
     def __init__(self, radius):
-        self._kernel_radius = None
-        self._kernel_n_points = None
-        self._kernel_pointer = None
-        self._kernel_height = None
 
         # see Kernel.java for these special cases
         if (radius >= 1.5 and radius < 1.75):
