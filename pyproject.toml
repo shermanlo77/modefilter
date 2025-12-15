@@ -22,7 +22,11 @@ where = ["python"]
 [tool.setuptools.package-data]
 "*" = ["*.ptx"]
 
+[tool.pytest]
+testpaths = ["tests/pytest"]
+
 [tool.ruff]
+include = ["pyproject.toml", "python/**/*.py", "tests/**/*.py"]
 line-length = 80
 indent-width = 4
 
