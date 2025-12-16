@@ -483,7 +483,7 @@ class EmpiricalNullFilter:
         # call cuda kernel and wait for results
         kernel(
             (n_block_x, n_block_y),
-            (self._block_dim_x, self._block_dim_x),
+            (self._block_dim_x, self._block_dim_y),
             kernel_args,
             shared_mem=shared_memory_size,
         )
