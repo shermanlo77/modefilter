@@ -223,14 +223,16 @@ class EmpiricalNullFilter:
             self._get_prerequisite_images(module, h_image, d_cache)
         )
 
-        d_null_mean_roi, d_null_std_roi = self._call_cuda_kernel(
+        d_null_std_roi = cupy.empty_like(d_null_mean_roi, cupy.float32)
+        self._call_cuda_kernel(
             module,
             h_image.shape,
             d_cache,
             d_initial_sigma_roi,
             d_bandwidth_roi,
-            d_null_mean_roi,
             shared_memory_size,
+            d_null_mean_roi,
+            d_null_std_roi,
         )
 
         # transfer from gpu to cpu
@@ -433,8 +435,9 @@ class EmpiricalNullFilter:
         d_cache,
         d_initial_sigma_roi,
         d_bandwidth_roi,
-        d_null_mean_roi,
         shared_memory_size,
+        d_null_mean_roi,
+        d_null_std_roi,
     ):
         """Call the cuda kernel for the empirical null filter
 
@@ -449,22 +452,20 @@ class EmpiricalNullFilter:
             d_bandwidth_roi (cupy.ndarray): return value of
                 _get_prerequisite_images(), the bandwidth for the density
                 estimate for each pixel
-            d_null_mean_roi (cupy.ndarray): MODIFIED, return value of
-                _get_prerequisite_images(), the median filter of the image.
-                Modified to store results of the null mean, which is also
-                returned
             shared_memory_size (int): the size of the shared memory per block
                 in bytes
-
-        Returns:
-            cupy.ndarray: the null mean image on device
-            cupy.ndarray: the null std image on device
+            d_null_mean_roi (cupy.ndarray): MODIFIED, return value of
+                _get_prerequisite_images(), the median filter of the image.
+                Modified to store results of the null mean
+            d_null_mean_roi (cupy.ndarray): MODIFIED, an empty device array of
+                the same shape as d_null_mean_roi. Modified to contain the
+                resulting empiricall null std image
         """
         kernel = module.get_function("EmpiricalNullFilter")
 
         # transfer all parameters to gpu
         d_kernel_pointers = self._get_d_kernel_pointer()
-        d_null_std_roi = cupy.empty_like(d_null_mean_roi, cupy.float32)
+
         d_progress_roi = cupy.zeros_like(d_null_mean_roi, cupy.int32)
 
         kernel_args = (
