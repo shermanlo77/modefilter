@@ -264,15 +264,19 @@ extern "C" __global__ void EmpiricalNullFilter(
   // additional initial values, add normal noise to neighbouring null_mean
   // solutions in shared memory, neighbours rotate from -1, itself and +1 from
   // current pointer
+  // if on left edge or right edge of shared memory or block, do not use initial
+  // value which goes beyond the boundary or edge
   int min;
   int n_neighbour;
   float initial0;
-  if (null_shared_index == 0) {
+  if (threadIdx.x == 0) {  // left edge
+    // set to zero so that it does not go beyond left edge
     min = 0;
   } else {
     min = -1;
   }
-  if (null_shared_index == blockDim.x * blockDim.y - 1) {
+  if (threadIdx.x == blockDim.x - 1 || x0 == kRoiWidth - 1) {  // right edge
+    // reduce number of neighbours so that it does not go beyond right edge
     n_neighbour = 1 - min;
   } else {
     n_neighbour = 2 - min;
