@@ -172,9 +172,11 @@ __device__ void CopyImageToSharedMemory(float* dest, int cache_in_block_width,
  *   ending column position from the centre of the kernel
  * @param null_mean_roi MODIFIED array of pixels (same size as ROI), pass
  *   results of median filter here to be used as initial values. Modified to
- *   contain the empricial null mean afterwards.
+ *   contain the empricial null mean afterwards. If the Newton-Raphson method
+ *   fails in a pixel, it will remain as the medium
  * @param null_std_roi MODIFIED array of pixels (same size as ROI) to contain
- *   the empirical null std
+ *   the empirical null std. If the Newton-Raphson method fails in a pixel, it
+ *   take a value of NaN
  * @param progress_roi MODIFIED array of pixels (same size as ROI) initally
  *   contains all zeros. A filtered pixel will change it to a one.
  */
@@ -234,6 +236,10 @@ extern "C" __global__ void EmpiricalNullFilter(
   // adjust pointer to the corresponding x y coordinates
   null_mean_shared_pointer += null_shared_index;
   second_diff_shared_pointer += null_shared_index;
+
+  // initalise null_std with nan, this will stay nan if all repeats of
+  // newton-raphson fails
+  *second_diff_shared_pointer = NAN;
 
   // for rng
   curandState_t state;
