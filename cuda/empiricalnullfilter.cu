@@ -21,6 +21,27 @@ __constant__ int kNInitial;      // number of initial values for Newton-Raphson
 __constant__ int kNStep;         // number of steps for Newton-Raphson
 __constant__ int kIsCopyImageToShared;  // indicate to copy image to shared mem
 
+struct GridInfo {
+  int x0;          // x coordinate of this thread
+  int y0;          // y coordinate of this thread
+  bool is_in_roi;  // indicate if this thread is in the region of interest
+  int roi_index;   // index of this thread in the region of interest
+};
+
+/**
+ * Get information about this thread
+ *
+ * @return GridInfo
+ */
+__device__ GridInfo GetGridInfo() {
+  GridInfo grid_info;
+  grid_info.x0 = threadIdx.x + blockIdx.x * blockDim.x;
+  grid_info.y0 = threadIdx.y + blockIdx.y * blockDim.y;
+  grid_info.is_in_roi = grid_info.x0 < kRoiWidth && grid_info.y0 < kRoiHeight;
+  grid_info.roi_index = grid_info.y0 * kRoiWidth + grid_info.x0;
+  return grid_info;
+}
+
 /**
  * Get derivative of the log density
  *
@@ -156,6 +177,176 @@ __device__ void CopyImageToSharedMemory(float* dest, int cache_in_block_width,
 }
 
 /**
+ * Get shared memory pointers
+ *
+ * Get pointers to shared memory for the cache (either the entire image in
+ * global or a block of it in shared memory), the null mean and the second diff
+ * of the log density
+ *
+ * If kIsCopyImageToShared is true, the cache is copied to shared memory, else
+ * it is copied to global memory
+ *
+ * @param kernel_pointers: array (even number of elements, size 2*kKernelHeight)
+ *   containing pairs of integers, indicates for each row the starting and
+ *   ending column position from the centre of the kernel
+ * @param cache MODIFIED array of pixels to filter, this image should have
+ *   padding of kKernelRadius in each direction. This is modified to point to
+ *   the pixel for this thread. This can either be in global memory or shared
+ *   memory. The parameter cache_width is modified to reflect this
+ * @param cache_width MODIFIED to contain the width of the image in cache
+ * @param null_mean_shared MODIFIED to point to shared memory for storing the
+ *   null mean for this thread
+ * @param second_diff_ln_shared MODIFIED to point to the shared memory for
+ *   storing the second derivative of the log density for this thread
+ */
+__device__ void GetSharedMemPointers(int* kernel_pointers, float** cache,
+                                     int* cache_width, float** null_mean_shared,
+                                     float** second_diff_ln_shared) {
+  int x0 = threadIdx.x + blockIdx.x * blockDim.x;
+  int y0 = threadIdx.y + blockIdx.y * blockDim.y;
+  // adjust pointer to the corresponding x y coordinates
+  *cache += (y0 + kKernelRadius) * kCacheWidth + x0 + kKernelRadius;
+  // check if in roi
+  // &&isfinite(*cache) is not required as accessing the image from this
+  // pixel is within bounds
+  bool is_in_roi = x0 < kRoiWidth && y0 < kRoiHeight;
+
+  // get shared memory
+  extern __shared__ float shared_memory[];
+  *null_mean_shared = shared_memory;
+  *second_diff_ln_shared = *null_mean_shared + blockDim.x * blockDim.y;
+
+  // cache_pointer points to the image to filter (including padding)
+  // cache_pointer may either points to global or shared memory
+  // cache_width will specify the width of the cache according to if the cache
+  // is in global or shared memory
+
+  // if the shared memory is big enough, copy the image
+  // cache_pointer points to shared memory if shared memory allows it, otherwise
+  // points to global memory
+  if (kIsCopyImageToShared) {
+    // width of the cache captured by a block, including the padding
+    // padding is of kKernelRadius size, on left and right
+    *cache_width = blockDim.x + 2 * kKernelRadius;
+    float* cache_shared = *second_diff_ln_shared + blockDim.x * blockDim.y;
+    cache_shared += (threadIdx.y + kKernelRadius) * *cache_width + threadIdx.x +
+                    kKernelRadius;
+    // copy image to shared memory
+    if (is_in_roi) {
+      CopyImageToSharedMemory(cache_shared, *cache_width, *cache,
+                              kernel_pointers);
+    }
+    // use the cache in shared memory by pointing to it
+    *cache = cache_shared;
+  } else {
+    // else keep the cache in global memory
+    *cache_width = kCacheWidth;
+  }
+
+  // adjust pointer to the corresponding x y coordinates
+  int shared_memory_index = threadIdx.y * blockDim.x + threadIdx.x;
+  *null_mean_shared += shared_memory_index;
+  *second_diff_ln_shared += shared_memory_index;
+}
+
+/**
+ * Find the mode using multiple initial values
+ *
+ * Use Newton-Raphson to find the maximum value of the density estimate with
+ * different initial values. The initial values are a weighted sum of the median
+ * and the previous solution from this thread or a thread adjacent to it
+ *
+ * @param cache the image to filter, can either be in global or shared memory,
+ *   positioned at the centre of the kernel
+ * @param cache_width width of the cache
+ * @param median the median of the kernel
+ * @param sigma the standard deviation of the kernel
+ * @param bandwidth parameter for the density estimate
+ * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
+ *   containing pairs of integers, indicates for each row the starting and
+ *   ending column position from the centre of the kernel
+ * @param null_mean_shared MODIFIED to contain the null mean for this thread
+ * @param second_diff_ln_shared MODIFIED to contain the second derivative of the
+ *   log density for this thread
+ */
+__device__ void MultiFindMode(float* cache, int cache_width, float median,
+                              float sigma, float bandwidth,
+                              int* kernel_pointers, float* null_mean_shared,
+                              float* second_diff_ln_shared) {
+  GridInfo grid_info = GetGridInfo();
+
+  float null_mean = median;
+
+  if (grid_info.is_in_roi) {
+    // initalise null_std with nan, this will stay nan if all repeats of
+    // newton-raphson fails
+    *null_mean_shared = median;
+    *second_diff_ln_shared = NAN;
+  }
+
+  // try different initial values, the first one is the median, then for
+  // additional initial values, add normal noise to neighbouring null_mean
+  // solutions in shared memory, neighbours rotate from -1, itself and +1 from
+  // current pointer
+  // if on left edge or right edge of shared memory or block, do not use
+  // initial value which goes beyond the boundary or edge
+  int min;
+  int n_neighbour;
+  if (threadIdx.x == 0) {  // left edge
+    // set to zero so that it does not go beyond left edge
+    min = 0;
+  } else {
+    min = -1;
+  }
+  if (threadIdx.x == blockDim.x - 1 ||
+      grid_info.x0 == kRoiWidth - 1) {  // right edge
+    // reduce number of neighbours so that it does not go beyond right edge
+    n_neighbour = 1 - min;
+  } else {
+    n_neighbour = 2 - min;
+  }
+
+  // for rng
+  curandState_t state;
+  curand_init(0, grid_info.roi_index, 0, &state);
+  // keep solution with the highest density
+  float max_density_at_mode = -INFINITY;
+
+  for (int i = 0; i < kNInitial; i++) {
+    if (grid_info.is_in_roi) {
+      float density_at_mode;  // density for this particular mode
+      // second derivative of the log density, to set empirical null std
+      float second_diff_ln;
+      // indicate if newton-raphson was sucessful
+      bool is_success = FindMode(cache, cache_width, bandwidth, kernel_pointers,
+                                 &null_mean, &second_diff_ln, &density_at_mode);
+      // keep null_mean and nullStd with the highest density
+      if (is_success) {
+        if (density_at_mode > max_density_at_mode) {
+          max_density_at_mode = density_at_mode;
+          *null_mean_shared = null_mean;
+          *second_diff_ln_shared = second_diff_ln;
+        }
+      }
+    }
+
+    // try different initial value
+    __syncthreads();
+
+    if (grid_info.is_in_roi) {
+      // try an initial value using its neighbour in shared memory
+      float initial0 = *(null_mean_shared + i % n_neighbour + min);
+      // ensure the initial value is finite, otherwise use previous solution
+      if (!isfinite(initial0)) {
+        initial0 = null_mean;
+      }
+      // add normal noise and add bias towards median
+      null_mean = (initial0 + median) / 2 + sigma * curand_normal(&state);
+    }
+  }
+}
+
+/**
  * Main kernel: Empirical Null Filter
  *
  * Does the empirical null filter on the pixels in image, giving the empirical
@@ -184,145 +375,33 @@ extern "C" __global__ void EmpiricalNullFilter(
     float* cache, float* initial_sigma_roi, float* bandwidth_roi,
     int* kernel_pointers, float* null_mean_roi, float* null_std_roi,
     int* progress_roi) {
-  int x0 = threadIdx.x + blockIdx.x * blockDim.x;
-  int y0 = threadIdx.y + blockIdx.y * blockDim.y;
-  // adjust pointer to the corresponding x y coordinates
-  cache += (y0 + kKernelRadius) * kCacheWidth + x0 + kKernelRadius;
-  // check if in roi
-  // &&isfinite(*cache) is not required as accessing the image from this
-  // pixel is within bounds
-  bool is_in_roi = x0 < kRoiWidth && y0 < kRoiHeight;
+  GridInfo grid_info = GetGridInfo();
 
-  // get shared memory
-  extern __shared__ float shared_memory[];
-  float* null_mean_shared_pointer = shared_memory;
-  float* second_diff_shared_pointer =
-      null_mean_shared_pointer + blockDim.x * blockDim.y;
+  int cache_width;  // width of the cache after calling GetSharedMemPointers()
+  float* null_mean_shared;       // shared memory for null mean
+  float* second_diff_ln_shared;  // shared memory for second diff of log density
+  GetSharedMemPointers(kernel_pointers, &cache, &cache_width, &null_mean_shared,
+                       &second_diff_ln_shared);
 
-  // offset by the x and y coordinates
-  int roi_index = y0 * kRoiWidth + x0;
-  int null_shared_index = threadIdx.y * blockDim.x + threadIdx.x;
-
-  // cache_pointer points to the image to filter (including padding)
-  // cache_pointer may either points to global or shared memory
-  // cache_width will specify the width of the cache according to if the cache
-  // is in global or shared memory
-  float* cache_pointer;
-  int cache_width;
-
-  // if the shared memory is big enough, copy the image
-  // cache_pointer points to shared memory if shared memory allows it, otherwise
-  // points to global memory
-  if (kIsCopyImageToShared) {
-    // width of the cache captured by a block, including the padding
-    // padding is of kKernelRadius size, on left and right
-    cache_width = blockDim.x + 2 * kKernelRadius;
-    cache_pointer = second_diff_shared_pointer + blockDim.x * blockDim.y;
-    cache_pointer += (threadIdx.y + kKernelRadius) * cache_width + threadIdx.x +
-                     kKernelRadius;
-    // copy image to shared memory
-    if (is_in_roi) {
-      CopyImageToSharedMemory(cache_pointer, cache_width, cache,
-                              kernel_pointers);
-    }
-  } else {
-    // else keep the cache in global memory
-    cache_width = kCacheWidth;
-    cache_pointer = cache;
-  }
-
-  __syncthreads();
-
-  // adjust pointer to the corresponding x y coordinates
-  null_mean_shared_pointer += null_shared_index;
-  second_diff_shared_pointer += null_shared_index;
-
-  // initalise null_std with nan, this will stay nan if all repeats of
-  // newton-raphson fails
-  *second_diff_shared_pointer = NAN;
-
-  // for rng
-  curandState_t state;
-  curand_init(0, roi_index, 0, &state);
-  // null_mean used to store mode for each initial value
-  float null_mean;
   float median;
-  float sigma;      // how much noise to add
-  float bandwidth;  // bandwidth for density estimate
+  float sigma;
+  float bandwidth;
 
-  if (is_in_roi) {
-    null_mean = null_mean_roi[roi_index];  // use median as first initial
-    median = null_mean;
-    // modes with highest densities are stored in shared memory
-    *null_mean_shared_pointer = null_mean;
-    sigma = initial_sigma_roi[roi_index];  // how much noise to add
-    bandwidth = bandwidth_roi[roi_index];  // bandwidth for density estimate
+  if (grid_info.is_in_roi) {
+    // initalise values
+    median = null_mean_roi[grid_info.roi_index];
+    sigma = initial_sigma_roi[grid_info.roi_index];
+    bandwidth = bandwidth_roi[grid_info.roi_index];
   }
 
-  bool is_success;        // indicate if newton-raphson was sucessful
-  float density_at_mode;  // density for this particular mode
-  // second derivative of the log density, to set empirical null std
-  float second_diff_ln;
-  // keep solution with the highest density
-  float max_density_at_mode = -INFINITY;
-
-  // try different initial values, the first one is the median, then for
-  // additional initial values, add normal noise to neighbouring null_mean
-  // solutions in shared memory, neighbours rotate from -1, itself and +1 from
-  // current pointer
-  // if on left edge or right edge of shared memory or block, do not use initial
-  // value which goes beyond the boundary or edge
-  int min;
-  int n_neighbour;
-  float initial0;
-  if (threadIdx.x == 0) {  // left edge
-    // set to zero so that it does not go beyond left edge
-    min = 0;
-  } else {
-    min = -1;
-  }
-  if (threadIdx.x == blockDim.x - 1 || x0 == kRoiWidth - 1) {  // right edge
-    // reduce number of neighbours so that it does not go beyond right edge
-    n_neighbour = 1 - min;
-  } else {
-    n_neighbour = 2 - min;
-  }
-
-  for (int i = 0; i < kNInitial; i++) {
-    if (is_in_roi) {
-      is_success =
-          FindMode(cache_pointer, cache_width, bandwidth, kernel_pointers,
-                   &null_mean, &second_diff_ln, &density_at_mode);
-      // keep null_mean and nullStd with the highest density
-      if (is_success) {
-        if (density_at_mode > max_density_at_mode) {
-          max_density_at_mode = density_at_mode;
-          *null_mean_shared_pointer = null_mean;
-          *second_diff_shared_pointer = second_diff_ln;
-        }
-      }
-    }
-
-    // try different initial value
-    __syncthreads();
-
-    if (is_in_roi) {
-      // try an initial value using its neighbour in shared memory
-      initial0 = *(null_mean_shared_pointer + i % n_neighbour + min);
-      // ensure the initial value is finite, otherwise use previous solution
-      if (!isfinite(initial0)) {
-        initial0 = null_mean;
-      }
-      // add normal noise and add bias towards median
-      null_mean = (initial0 + median) / 2 + sigma * curand_normal(&state);
-    }
-  }
+  MultiFindMode(cache, cache_width, median, sigma, bandwidth, kernel_pointers,
+                null_mean_shared, second_diff_ln_shared);
 
   // store final results
-  if (is_in_roi) {
-    null_mean_roi[roi_index] = *null_mean_shared_pointer;
-    null_std_roi[roi_index] = powf(-*second_diff_shared_pointer, -0.5f);
-    progress_roi[roi_index] = 1;
+  if (grid_info.is_in_roi) {
+    null_mean_roi[grid_info.roi_index] = *null_mean_shared;
+    null_std_roi[grid_info.roi_index] = powf(-*second_diff_ln_shared, -0.5f);
+    progress_roi[grid_info.roi_index] = 1;
   }
 }
 
