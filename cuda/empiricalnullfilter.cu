@@ -1,31 +1,72 @@
 // MIT License
-// Copyright (c) 2020-2024 Sherman Lo
+// Copyright (c) 2020-2026 Sherman Lo
+
+/**
+ * @file empiricalnullfilter.cu
+ *
+ * Empirical null filter - consisting of the null mean filter (aka mode filter)
+ * and the null std filter. The filter, using the pixels in the kernel, creates
+ * a local empirical density and the mode and standard deviation are solved
+ * using the Newton-Raphson method
+ *
+ * The CUDA kernel is <code>EmpiricalNullFilter<<<>>>()</code>
+ *
+ * The parameters of the CUDA kernel requires the median filtered image,
+ * standard deviation filtered image and bandwidth parameter image. The CUDA
+ * kernel <code>MeanStdFilter<<<>>>()</code> is provided and may be used to
+ * calculate the standard deviation filtered image and bandwidth parameter image
+ *
+ * Before running any of the GPU kernels, ensure the
+ * <code>\_\_constant\_\_</code> variables are set
+ *
+ * Notes:
+ * <ul>
+ *   <li>Row major</li>
+ *   <li>
+ *     The word <i>kernel</i> on its own refers to the circular boundary,
+ *     centred on a pixel, which captures pixels within it and used for
+ *     calcaultions. Each thread will work on a kernel centred on the pixel the
+ *     thread is working on. To avoid confusion, <i>CUDA kernel</i> is used to
+ *     refer to a <code>\_\_global\_\_</code> function
+ *   </li>
+ *   <li>
+ *     The image to filter is called the region of interest or ROI. The cache
+ *     refers to the image which contains the ROI and NaN padding around it.
+ *   </li>
+ *   <li>
+ *     Shared memory is used to store the empirical null mean and std. <b>If</b>
+ *     big enough, it also stores the cache. Size becomes a problem if the
+ *     kernel radius becomes too big, in this case, the cache lives in global
+ *     memory
+ *   </li>
+ * </ul>
+ */
 
 #include <cuda.h>
 #include <curand_kernel.h>
 
-// See EmpiricalNullFilter - this is the main kernel and the main point of entry
-// Notes: row major
-// Notes: the image to filter can be commonly referred to as the cache
-// Notes: __constant__ are to be set before running the kernel
-// Notes: shared memory is used to store the empirical null mean and std. IF big
-//   enough, also the image. Size becomes a problem if the kernel radius becomes
-//   too big, in this case, the image lives in global memory and hopefully may
-//   be picked up in L1 and L2
-__constant__ int kRoiWidth;      // region of interest width
-__constant__ int kRoiHeight;     // region of interest height
-__constant__ int kCacheWidth;    // width of the image (including padding)
-__constant__ int kKernelRadius;  // the radius of the kernel
-__constant__ int kKernelHeight;  // the number of rows in the kernel
-__constant__ int kNInitial;      // number of initial values for Newton-Raphson
-__constant__ int kNStep;         // number of steps for Newton-Raphson
-__constant__ int kIsCopyImageToShared;  // indicate to copy image to shared mem
+/** Width of the region of interest */
+__constant__ int kRoiWidth;
+/** Height of the region of interest */
+__constant__ int kRoiHeight;
+/** Width of the image (including padding) */
+__constant__ int kCacheWidth;
+/** Radius of the kernel */
+__constant__ int kKernelRadius;
+/** Number of rows in the kernel */
+__constant__ int kKernelHeight;
+/** Number of initial values for Newton-Raphson */
+__constant__ int kNInitial;
+/** Number of steps for Newton-Raphson */
+__constant__ int kNStep;
+/** Indicate to copy image to shared memory or not */
+__constant__ int kIsCopyImageToShared;
 
 struct GridInfo {
-  int x0;          // x coordinate of this thread
-  int y0;          // y coordinate of this thread
-  bool is_in_roi;  // indicate if this thread is in the region of interest
-  int roi_index;   // index of this thread in the region of interest
+  int x0;         /** <code>x</code> coordinate of this thread */
+  int y0;         /** <code>y</code> coordinate of this thread */
+  bool is_in_roi; /** Indicate if this thread is in the region of interest */
+  int roi_index;  /** Index of this thread in the region of interest */
 };
 
 /**
@@ -43,29 +84,47 @@ __device__ GridInfo GetGridInfo() {
 }
 
 /**
+ * Get the width of the cache in shared memory
+ *
+ * Return the width of the cache in shared memory. The cache in shared memory is
+ * the ROI and padding captured by the block
+ *
+ * @return Width of the cache in shared memory
+ */
+__device__ int GetSharedMemCacheWidth() {
+  return blockDim.x + 2 * kKernelRadius;
+}
+
+/**
  * Get derivative of the log density
  *
- * Set dx_lnf to contain derivatives of the density estimate evaluated at a
- * point
+ * Capture all pixels by the kernel and draw an empirical density from it. This
+ * function returns the density evaluated at a point, as well as the log density
+ * and the second derivative of the log density. They are outputted in the
+ * parameter <code>dx_lnf</code>
  *
- * @param cache_pointer the image to filter, can either be in global or shared
- *   memory, positioned at the centre of the kernel
- * @param cache_width the width of the image in cache_pointer
- * @param bandwidth parameter for the density estimate
- * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
- *   containing pairs of integers, indicates for each row the starting and
- *   ending column position from the centre of the kernel
- * @param value where the density estimate is evaluated at
- * @param dx_lnf MODIFIED 3-element array, to store results. The elements are:
+ * @param cache Image to filter (the ROI and padding), this can either be in
+ *   global or shared memory. The pointer is to be positioned at the centre of
+ *   the kernel
+ * @param cache_width Width of the image in <code>cache</code>
+ * @param bandwidth Bandwidth parameter for the density estimate
+ * @param kernel_pointers Array (even number of elements, size
+ *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
+ *   each row the starting and ending column position from the centre of the
+ *   kernel
+ * @param value Where the density estimate is to be evaluated at
+ * @param dx_lnf <b>Modified</b> 3-element array - To store results where the
+ * elements are the following:
  *   <ol>
- *     <li>the density (ignore any constant multiplied to it) (NOT THE LOG)</li>
- *     <li>the first derivative of the log density</li>
- *     <li>the second derivative of the log density</li>
+ *     <li>The density (ignore any constant multiplied to it) <b>not the
+ *         log</b></li>
+ *     <li>The first derivative of the log density</li>
+ *     <li>The second derivative of the log density</li>
  *   </ol>
  */
-__device__ void GetDLnDensity(float* cache_pointer, int cache_width,
-                              float bandwidth, int* kernel_pointers,
-                              float* value, float* dx_lnf) {
+__device__ void GetDLnDensity(float* cache, int cache_width, float bandwidth,
+                              int* kernel_pointers, float* value,
+                              float* dx_lnf) {
   // variables when going through all pixels in the kernel
   float z;                       // value of a pixel when looping through kernel
   float sum_kernel[3] = {0.0f};  // store sums of weights
@@ -73,14 +132,14 @@ __device__ void GetDLnDensity(float* cache_pointer, int cache_width,
 
   // pointer for the image
   // point to the top of the kernel
-  cache_pointer -= kKernelRadius * cache_width;
+  cache -= kKernelRadius * cache_width;
 
   // for each row in the kernel
   for (int i = 0; i < 2 * kKernelHeight; i++) {
     // for each column for this row
     for (int dx = kernel_pointers[i++]; dx <= kernel_pointers[i]; dx++) {
-      // append to sum if the value in cache_pointer is finite
-      z = *(cache_pointer + dx);
+      // append to sum if the value in cache is finite
+      z = *(cache + dx);
       if (isfinite(z)) {
         z -= *value;
         z /= bandwidth;
@@ -90,7 +149,7 @@ __device__ void GetDLnDensity(float* cache_pointer, int cache_width,
         sum_kernel[2] += phi_z * z * z;
       }
     }
-    cache_pointer += cache_width;
+    cache += cache_width;
   }
 
   // work out derivatives
@@ -106,39 +165,44 @@ __device__ void GetDLnDensity(float* cache_pointer, int cache_width,
  * Find mode
  *
  * Use Newton-Raphson to find the maximum value of the density estimate. Uses
- * the passed null_mean as the initial value and modifies it at each step,
- * ending up with a final answer.
+ * the passed <code>null_mean</code> as the initial value and modifies it at
+ * each step, ending up with a final answer
  *
  * The second derivative of the log density and the density (up to a constant)
- * at the final answer is stored in second_diff_ln and density_at_mode.
+ * at the final answer are stored in <code>second_diff_ln</code> and
+ * <code>density_at_mode</code> if the algoirthm is successful. It is deemed
+ * unsuccessful if any of the values are not finite or if the second derivative
+ * of the log density is non-negative
  *
- * @param cache_pointer the image to filter, can either be in global or shared
- *   memory, positioned at the centre of the kernel
- * @param cache_width the width of the image in cache_pointer
- * @param bandwidth bandwidth for the density estimate
- * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
- *   containing pairs of integers, indicates for each row the starting and
- *   ending column position from the centre of the kernel
- * @param null_mean MODIFIED initial value for the Newton-Raphson method,
- *   modified to contain the final answer
- * @param second_diff_ln MODIFIED second derivative of the log density at the
- *   mode
- * @param density_at_mode MODIFIED contains the density (up to a constant) at
- *   the mode
- * @returns true if sucessful, false otherwise
+ * @param cache Image to filter (the ROI and padding), this can either be in
+ *   global or shared memory. The pointer is to be positioned at the centre of
+ *   the kernel
+ * @param cache_width Width of the image in <code>cache</code>
+ * @param bandwidth Bandwidth parameter for the density estimate
+ * @param kernel_pointers Array (even number of elements, size
+ *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
+ *   each row the starting and ending column position from the centre of the
+ *   kernel
+ * @param null_mean <b>Modified</b> Initial value for the Newton-Raphson method.
+ *   Modified after each step to contain the mode during the algorithm
+ * @param second_diff_ln <b>Modified</b> To contain the second derivative of the
+ *   log density at the mode if successful
+ * @param density_at_mode <b>Modified</b> To contains the density (up to a
+ *   constant) at the mode if successful
+ * @returns <code>true</code> if sucessful, <code>false</code> otherwise
  */
-__device__ bool FindMode(float* cache_pointer, int cache_width, float bandwidth,
+__device__ bool FindMode(float* cache, int cache_width, float bandwidth,
                          int* kernel_pointers, float* null_mean,
                          float* second_diff_ln, float* density_at_mode) {
   float dx_lnf[3];
   // kNStep of Newton-Raphson
   for (int i = 0; i < kNStep; i++) {
-    GetDLnDensity(cache_pointer, cache_width, bandwidth, kernel_pointers,
-                  null_mean, dx_lnf);
+    GetDLnDensity(cache, cache_width, bandwidth, kernel_pointers, null_mean,
+                  dx_lnf);
     *null_mean -= dx_lnf[1] / dx_lnf[2];
   }
-  GetDLnDensity(cache_pointer, cache_width, bandwidth, kernel_pointers,
-                null_mean, dx_lnf);
+  GetDLnDensity(cache, cache_width, bandwidth, kernel_pointers, null_mean,
+                dx_lnf);
   // need to check if answer is valid
   if (isfinite(*null_mean) && isfinite(dx_lnf[0]) && isfinite(dx_lnf[1]) &&
       isfinite(dx_lnf[2]) && (dx_lnf[2] < 0)) {
@@ -152,18 +216,20 @@ __device__ bool FindMode(float* cache_pointer, int cache_width, float bandwidth,
 /**
  * Copy image to shared memory
  *
- * @param dest pointer to shared memory
- * @param cache_in_block_width the size of the cache captured by the block,
- *   including the padding
- * @param source pointer to image
- * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
- *   containing pairs of integers, indicates for each row the starting and
- *   ending column position from the centre of the kernel
+ * Copy all pixels captured by this thread's kernel from global memory to shared
+ * memory
+ *
+ * @param source Pointer to image at the centre of the kernel
+ * @param kernel_pointers Array (even number of elements, size
+ *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
+ *   each row the starting and ending column position from the centre of the
+ *   kernel
+ * @param dest <b>Modified</b> Pointer to shared memory for this thread
  */
-__device__ void CopyImageToSharedMemory(float* dest, int cache_in_block_width,
-                                        float* source, int* kernel_pointers) {
+__device__ void CopyImageToSharedMemory(float* source, int* kernel_pointers,
+                                        float* dest) {
   // point to top left
-  dest -= kKernelRadius * cache_in_block_width;
+  dest -= kKernelRadius * GetSharedMemCacheWidth();
   source -= kKernelRadius * kCacheWidth;
   // for each row in the kernel
   for (int i = 0; i < 2 * kKernelHeight; i++) {
@@ -172,32 +238,40 @@ __device__ void CopyImageToSharedMemory(float* dest, int cache_in_block_width,
       *(dest + dx) = *(source + dx);
     }
     source += kCacheWidth;
-    dest += cache_in_block_width;
+    dest += GetSharedMemCacheWidth();
   }
 }
 
 /**
  * Get shared memory pointers
  *
- * Get pointers to shared memory for the cache (either the entire image in
- * global or a block of it in shared memory), the null mean and the second diff
- * of the log density
+ * Get pointers to shared memory for the cache, that is the ROI and padding.
+ * Depending on <code>kIsCopyImageToShared</code>, the cache can either be in
+ * global memory or in shared memory (where a block of the image is copied from
+ * global memory to shared memory)
  *
- * If kIsCopyImageToShared is true, the cache is copied to shared memory, else
- * it is copied to global memory
+ * If <code>kIsCopyImageToShared</code> is <code>true</code>, the cache is
+ * copied to shared memory, else the cache is left in global memory
  *
- * @param kernel_pointers: array (even number of elements, size 2*kKernelHeight)
- *   containing pairs of integers, indicates for each row the starting and
- *   ending column position from the centre of the kernel
- * @param cache MODIFIED array of pixels to filter, this image should have
- *   padding of kKernelRadius in each direction. This is modified to point to
- *   the pixel for this thread. This can either be in global memory or shared
- *   memory. The parameter cache_width is modified to reflect this
- * @param cache_width MODIFIED to contain the width of the image in cache
- * @param null_mean_shared MODIFIED to point to shared memory for storing the
- *   null mean for this thread
- * @param second_diff_ln_shared MODIFIED to point to the shared memory for
- *   storing the second derivative of the log density for this thread
+ * Also get pointers to shared memory for the null mean and the second diff of
+ * the log density. They only capture the ROI
+ *
+ * @param kernel_pointers Array (even number of elements, size
+ *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
+ *   each row the starting and ending column position from the centre of the
+ *   kernel
+ * @param cache <b>Modified</b> Image to filter (the ROI and padding) in global
+ *   memory. The pointer is at the start of the image. This is then modified so
+ *   that the pointer is at the centre of the kernel for this thread. In
+ *   addition, the memory pointed to may either be in global or shared memory
+ * @param cache_width <b>Modified</b> To contain the width of the image in
+ *   <code>cache</code>. If <code>cache</code> is in global memory, the width
+ *   is of the entire image (ROI and padding). Otherwise in shared memory, the
+ *   width is of the block plus padding
+ * @param null_mean_shared <b>Modified</b> To point to shared memory for
+ *   storing the null mean for this thread
+ * @param second_diff_ln_shared <b>Modified</b> To point to the shared memory
+ *   for storing the second derivative of the log density for this thread
  */
 __device__ void GetSharedMemPointers(int* kernel_pointers, float** cache,
                                      int* cache_width, float** null_mean_shared,
@@ -227,14 +301,13 @@ __device__ void GetSharedMemPointers(int* kernel_pointers, float** cache,
   if (kIsCopyImageToShared) {
     // width of the cache captured by a block, including the padding
     // padding is of kKernelRadius size, on left and right
-    *cache_width = blockDim.x + 2 * kKernelRadius;
+    *cache_width = GetSharedMemCacheWidth();
     float* cache_shared = *second_diff_ln_shared + blockDim.x * blockDim.y;
     cache_shared += (threadIdx.y + kKernelRadius) * *cache_width + threadIdx.x +
                     kKernelRadius;
     // copy image to shared memory
     if (is_in_roi) {
-      CopyImageToSharedMemory(cache_shared, *cache_width, *cache,
-                              kernel_pointers);
+      CopyImageToSharedMemory(*cache, kernel_pointers, cache_shared);
     }
     // use the cache in shared memory by pointing to it
     *cache = cache_shared;
@@ -253,21 +326,25 @@ __device__ void GetSharedMemPointers(int* kernel_pointers, float** cache,
  * Find the mode using multiple initial values
  *
  * Use Newton-Raphson to find the maximum value of the density estimate with
- * different initial values. The initial values are a weighted sum of the median
- * and the previous solution from this thread or a thread adjacent to it
+ * different initial values. The result with the highest density is kept. The
+ * initial values are a weighted sum of the median and the previous solution
+ * from this thread or a thread adjacent to it with random noise added
  *
- * @param cache the image to filter, can either be in global or shared memory,
- *   positioned at the centre of the kernel
- * @param cache_width width of the cache
- * @param median the median of the kernel
- * @param sigma the standard deviation of the kernel
- * @param bandwidth parameter for the density estimate
- * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
- *   containing pairs of integers, indicates for each row the starting and
- *   ending column position from the centre of the kernel
- * @param null_mean_shared MODIFIED to contain the null mean for this thread
- * @param second_diff_ln_shared MODIFIED to contain the second derivative of the
- *   log density for this thread
+ * @param cache Image to filter (the ROI and padding), this can either be in
+ *   global or shared memory. The pointer is to be positioned at the centre of
+ *   the kernel
+ * @param cache_width Width of the image in <code>cache</code>
+ * @param median The median over the kernel
+ * @param sigma The standard deviation of the added Normal noise
+ * @param bandwidth Bandwidth parameter for the density estimate
+ * @param kernel_pointers Array (even number of elements, size
+ *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
+ *   each row the starting and ending column position from the centre of the
+ *   kernel
+ * @param null_mean_shared <b>Modified</b> To contain the null mean for this
+ *   thread
+ * @param second_diff_ln_shared <b>Modified</b> To contain the second derivative
+ *   of the log density for this thread
  */
 __device__ void MultiFindMode(float* cache, int cache_width, float median,
                               float sigma, float bandwidth,
@@ -347,29 +424,46 @@ __device__ void MultiFindMode(float* cache, int cache_width, float median,
 }
 
 /**
- * Main kernel: Empirical Null Filter
+ * Empirical Null Filter
  *
- * Does the empirical null filter on the pixels in image, giving the empirical
- * null mean (aka mode) and the empirical null std.
+ * Does the empirical null filter on an image, giving the empirical null mean
+ * (aka mode) and the empirical null std
  *
- * @param cache array of pixels to filter
- * @param initial_sigma_roi: array of pixels (same size as the ROI) containing
- *   standard deviations, used for producing random initial values for
- *   Newton-Raphson
- * @param bandwidth_roi array of pixels (same size as the ROI) containing the
- *   bandwidth for the density estimate
- * @param kernel_pointers: array (even number of elements, size 2*kKernelHeight)
- *   containing pairs of integers, indicates for each row the starting and
- *   ending column position from the centre of the kernel
- * @param null_mean_roi MODIFIED array of pixels (same size as ROI), pass
- *   results of median filter here to be used as initial values. Modified to
+ * In this filter, all pixels in the kernel are gathered to create an empirical
+ * density. The mode is solved using the Newton-Raphson method with different
+ * initial values. The standard deviation can also be obatined from the
+ * second derivative of the log density at the mode. They are called the null
+ * mean and null std respectively
+ *
+ * To initalise the Newton-Raphson method, pass the resulting median filtered
+ * image via the parameter <code>null_mean_roi</code> - this is later modified,
+ * see below. This is used as the initial value. To produce futher random
+ * initial value, pass the resulting std filter via the parameter
+ * <code>initial_sigma_roi</code>
+ *
+ * The resulting null mean and null std images are returned via the
+ * <code>null_mean_roi</code> and <code>null_std_roi</code> parameters
+ * respectively
+ *
+ * @param cache Image to filter (the ROI and padding) in global memory. The
+ *   pointer is at the start of the image
+ * @param initial_sigma_roi: Image (same size as the ROI) containing standard
+ *   deviations, used for producing random initial values for Newton-Raphson
+ * @param bandwidth_roi Image (same size as the ROI) containing the bandwidth
+ *   parameter for the density estimate
+ * @param kernel_pointers Array (even number of elements, size
+ *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
+ *   each row the starting and ending column position from the centre of the
+ *   kernel
+ * @param null_mean_roi <b>Modified</b> Image same size as ROI. Pass results of
+ *   median filter here to be used as initial values. This is then modified to
  *   contain the empricial null mean afterwards. If the Newton-Raphson method
  *   fails in a pixel, it will remain as the medium
- * @param null_std_roi MODIFIED array of pixels (same size as ROI) to contain
- *   the empirical null std. If the Newton-Raphson method fails in a pixel, it
- *   take a value of NaN
- * @param progress_roi MODIFIED array of pixels (same size as ROI) initally
- *   contains all zeros. A filtered pixel will change it to a one.
+ * @param null_std_roi <b>Modified</b> Image same size as ROI. To contain the
+ *   resulting empirical null std. If the Newton-Raphson method fails in a
+ *   pixel, it take a value of <code>NAN</code>
+ * @param progress_roi <b>Modified</b>  Image same size as ROI. To contain
+ *   initally contains all zeros. A filtered pixel will change it to a one
  */
 extern "C" __global__ void EmpiricalNullFilter(
     float* cache, float* initial_sigma_roi, float* bandwidth_roi,
@@ -408,18 +502,19 @@ extern "C" __global__ void EmpiricalNullFilter(
 /**
  * Get the (local) count, mean and std in a kernel
  *
- * @param cache_pointer the image to filter on global memory, positioned at the
- *   centre of the kernel
- * @param kernel_pointers array (even number of elements, size 2*kKernelHeight)
- *   containing pairs of integers, indicates for each row the starting and
- *   ending column position from the centre of the kernel
- * @param count MODIFIED the resulting local count, ie number of finite elements
- *   in the kernel
- * @param mean MODIFIED the resulting local mean
- * @param std MODIFIED the resulting local std
+ * @param cache Image to filter (the ROI and padding) in global memory. The
+ *   pointer is to be positioned at the centre of the kernel
+ * @param kernel_pointers Array (even number of elements, size
+ *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
+ *   each row the starting and ending column position from the centre of the
+ *   kernel
+ * @param count <b>Modified</b> To contain the resulting local count, ie number
+ *   of finite elements in the kernel
+ * @param mean <b>Modified</b> To contain the resulting local mean
+ * @param std <b>Modified</b> To containthe resulting local std
  */
-__device__ void GetMeanStd(float* cache_pointer, int* kernel_pointers,
-                           int* count, float* mean, float* std) {
+__device__ void GetMeanStd(float* cache, int* kernel_pointers, int* count,
+                           float* mean, float* std) {
   float z;  // value of a pixel when looping through kernel
 
   // initial values
@@ -429,59 +524,61 @@ __device__ void GetMeanStd(float* cache_pointer, int* kernel_pointers,
 
   // pointer for the image
   // point to the top of the kernel
-  float* cache_start = cache_pointer - kKernelRadius * kCacheWidth;
+  float* cache_start = cache - kKernelRadius * kCacheWidth;
 
-  cache_pointer = cache_start;
+  cache = cache_start;
 
   // calculate count and mean here
   // for each row in the kernel
   for (int i = 0; i < 2 * kKernelHeight; i++) {
     // for each column for this row
     for (int dx = kernel_pointers[i++]; dx <= kernel_pointers[i]; dx++) {
-      z = *(cache_pointer + dx);
+      z = *(cache + dx);
       if (isfinite(z)) {
         ++(*count);
         *mean += z;
       }
     }
-    cache_pointer += kCacheWidth;
+    cache += kCacheWidth;
   }
   *mean /= (float)*count;
 
   // given mean, calculate std
-  cache_pointer = cache_start;
+  cache = cache_start;
   // for each row in the kernel
   for (int i = 0; i < 2 * kKernelHeight; i++) {
     // for each column for this row
     for (int dx = kernel_pointers[i++]; dx <= kernel_pointers[i]; dx++) {
-      z = *(cache_pointer + dx);
+      z = *(cache + dx);
       if (isfinite(z)) {
         *std += (z - *mean) * (z - *mean);
       }
     }
-    cache_pointer += kCacheWidth;
+    cache += kCacheWidth;
   }
   *std /= (float)(*count - 1);
   *std = sqrtf(*std);
 }
 
 /**
- * Kernel: Mean and Standard Deviation Filter
+ * Mean and Standard Deviation Filter
  *
- * Does the mean and standard deviation filter on an image. It ignore non-finite
- * elements. Also returns the local number of finite elements in the kernel.
- * Non-finite elements occur at the padding.
+ * Does the mean and standard deviation filter on an image. It ignores
+ * non-finite elements. Also returns the local number of finite elements in the
+ * kernel. Non-finite elements occur at the padding
  *
- * @param cache array of pixels to filter
- * @param kernel_pointers: array (even number of elements, size 2*kKernelHeight)
- *   containing pairs of integers, indicates for each row the starting and
- *   ending column position from the centre of the kernel
- * @param count_roi MODIFIED array of pixels (same size as ROI), pass results
- *   with the local number of finite elements
- * @param mean_roi MODIFIED array of pixels (same size as ROI), pass results of
- *   the mean filter
- * @param std_roi MODIFIED array of pixels (same size as ROI), pass results of
- *   the std filter
+ * @param cache Image to filter (the ROI and padding) in global memory. The
+ *   pointer is to be positioned at the centre of the kernel
+ * @param kernel_pointers Array (even number of elements, size
+ *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
+ *   each row the starting and ending column position from the centre of the
+ *   kernel
+ * @param count_roi <b>Modified</b> Image same size as ROI. To contain the
+ *   resulting local number of finite elements
+ * @param mean_roi <b>Modified</b> Image same size as ROI. To contain the
+ *   resulting mean filter
+ * @param std_roi <b>Modified</b> Image same size as ROI. To contain the
+ *   resulting std filter
  */
 extern "C" __global__ void MeanStdFilter(float* cache, int* kernel_pointers,
                                          int* count_roi, float* mean_roi,
