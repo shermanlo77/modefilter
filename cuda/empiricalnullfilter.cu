@@ -437,9 +437,9 @@ __device__ void MultiFindMode(float* cache, int cache_width, float median,
  *
  * To initalise the Newton-Raphson method, pass the resulting median filtered
  * image via the parameter <code>null_mean_roi</code> - this is later modified,
- * see below. This is used as the initial value. To produce futher random
- * initial value, pass the resulting std filter via the parameter
- * <code>initial_sigma_roi</code>
+ * see below. This is used as the initial value. Pass the resulting std filtered
+ * image via the parameter <code>null_std_roi</code>, this is used to define the
+ * standard deviation of the Normal noise added to new initial values
  *
  * The resulting null mean and null std images are returned via the
  * <code>null_mean_roi</code> and <code>null_std_roi</code> parameters
@@ -447,10 +447,8 @@ __device__ void MultiFindMode(float* cache, int cache_width, float median,
  *
  * @param cache Image to filter (the ROI and padding) in global memory. The
  *   pointer is at the start of the image
- * @param initial_sigma_roi: Image (same size as the ROI) containing standard
- *   deviations, used for producing random initial values for Newton-Raphson
  * @param bandwidth_roi Image (same size as the ROI) containing the bandwidth
- *   parameter for the density estimate
+ *   parameters for the density estimate
  * @param kernel_pointers Array (even number of elements, size
  *   <code>2 * kKernelHeight</code>) containing pairs of integers, indicates for
  *   each row the starting and ending column position from the centre of the
@@ -459,16 +457,16 @@ __device__ void MultiFindMode(float* cache, int cache_width, float median,
  *   median filter here to be used as initial values. This is then modified to
  *   contain the empricial null mean afterwards. If the Newton-Raphson method
  *   fails in a pixel, it will remain as the medium
- * @param null_std_roi <b>Modified</b> Image same size as ROI. To contain the
- *   resulting empirical null std. If the Newton-Raphson method fails in a
- *   pixel, it take a value of <code>NAN</code>
+ * @param null_std_roi <b>Modified</b> Image same size as ROI. Pass result of
+ *   std filter here to be used to generate random noise. This is then modified
+ *   to contain the empirical null std afterwards. If the Newton-Raphson method
+ *   fails in a pixel, it take a value of <code>NAN</code>
  * @param progress_roi <b>Modified</b>  Image same size as ROI. To contain
  *   initally contains all zeros. A filtered pixel will change it to a one
  */
 extern "C" __global__ void EmpiricalNullFilter(
-    float* cache, float* initial_sigma_roi, float* bandwidth_roi,
-    int* kernel_pointers, float* null_mean_roi, float* null_std_roi,
-    int* progress_roi) {
+    float* cache, float* bandwidth_roi, int* kernel_pointers,
+    float* null_mean_roi, float* null_std_roi, int* progress_roi) {
   GridInfo grid_info = GetGridInfo();
 
   int cache_width;  // width of the cache after calling GetSharedMemPointers()
@@ -484,7 +482,7 @@ extern "C" __global__ void EmpiricalNullFilter(
   if (grid_info.is_in_roi) {
     // initalise values
     median = null_mean_roi[grid_info.roi_index];
-    sigma = initial_sigma_roi[grid_info.roi_index];
+    sigma = null_std_roi[grid_info.roi_index];
     bandwidth = bandwidth_roi[grid_info.roi_index];
   }
 

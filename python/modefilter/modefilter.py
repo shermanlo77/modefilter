@@ -219,16 +219,14 @@ class EmpiricalNullFilter:
         )
 
         # require some images before doing the empirical null filter
-        d_null_mean_roi, d_initial_sigma_roi, d_bandwidth_roi = (
+        d_null_mean_roi, d_null_std_roi, d_bandwidth_roi = (
             self._get_prerequisite_images(module, h_image, d_cache)
         )
 
-        d_null_std_roi = cupy.empty_like(d_null_mean_roi, cupy.float32)
         self._call_cuda_kernel(
             module,
             h_image.shape,
             d_cache,
-            d_initial_sigma_roi,
             d_bandwidth_roi,
             shared_memory_size,
             d_null_mean_roi,
@@ -433,7 +431,6 @@ class EmpiricalNullFilter:
         module,
         image_shape,
         d_cache,
-        d_initial_sigma_roi,
         d_bandwidth_roi,
         shared_memory_size,
         d_null_mean_roi,
@@ -457,9 +454,10 @@ class EmpiricalNullFilter:
             d_null_mean_roi (cupy.ndarray): MODIFIED, return value of
                 _get_prerequisite_images(), the median filter of the image.
                 Modified to store results of the null mean
-            d_null_mean_roi (cupy.ndarray): MODIFIED, an empty device array of
-                the same shape as d_null_mean_roi. Modified to contain the
-                resulting empiricall null std image
+            d_null_std_roi (cupy.ndarray): MODIFIED, return value of
+                _get_prerequisite_images(), the standard deviation filter of the
+                image. Modified to contain the resulting empiricall null std
+                image
         """
         kernel = module.get_function("EmpiricalNullFilter")
 
@@ -470,7 +468,6 @@ class EmpiricalNullFilter:
 
         kernel_args = (
             d_cache,
-            d_initial_sigma_roi,
             d_bandwidth_roi,
             d_kernel_pointers,
             d_null_mean_roi,

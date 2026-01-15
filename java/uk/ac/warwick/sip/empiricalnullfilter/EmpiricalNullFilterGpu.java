@@ -197,9 +197,8 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       Arrays.fill(nullStd, Float.NaN);
 
       // roi versions, smaller than or the same as the image
-      // initialSigmaRoi contains standard deviation information, used for generating random initial
+      // nullStdRoi contains standard deviation information, used for generating random initial
       // values
-      float[] initialSigmaRoi = new float[nPixelsInRoi];
       float[] bandwidthRoi = new float[nPixelsInRoi];
       float[] nullMeanRoi = new float[nPixelsInRoi];
       float[] nullStdRoi = new float[nPixelsInRoi];
@@ -234,7 +233,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
           }
 
           // use standard deviation for generating random initial values
-          initialSigmaRoi[roiPointer] = bandwidthRoi[roiPointer];
+          nullStdRoi[roiPointer] = bandwidthRoi[roiPointer];
 
           // min over iqr and std, used for bandwidth
           if (iqr < bandwidthRoi[roiPointer]) {
@@ -312,7 +311,6 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       // perpare to send variables through kernel
       // host pointers
       Pointer h_cache = Pointer.to(cache.getCache());
-      Pointer h_initialSigmaRoi = Pointer.to(initialSigmaRoi);
       Pointer h_bandwidthRoi = Pointer.to(bandwidthRoi);
       Pointer h_kernelPointers = Pointer.to(Kernel.getKernelPointer());
       Pointer h_nullMeanRoi = Pointer.to(nullMeanRoi);
@@ -320,7 +318,6 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
 
       // device pointers
       CUdeviceptr d_cache = new CUdeviceptr();
-      CUdeviceptr d_initialSigmaRoi = new CUdeviceptr();
       CUdeviceptr d_bandwidthRoi = new CUdeviceptr();
       CUdeviceptr d_kernelPointers = new CUdeviceptr();
       CUdeviceptr d_nullMeanRoi = new CUdeviceptr();
@@ -330,8 +327,6 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       // allocate memory on device
       JCudaDriver.cuMemAlloc(d_cache, Sizeof.FLOAT * nPixelsInCache);
       devicePointerArray.add(d_cache);
-      JCudaDriver.cuMemAlloc(d_initialSigmaRoi, Sizeof.FLOAT * nPixelsInRoi);
-      devicePointerArray.add(d_initialSigmaRoi);
       JCudaDriver.cuMemAlloc(d_bandwidthRoi, Sizeof.FLOAT * nPixelsInRoi);
       devicePointerArray.add(d_bandwidthRoi);
       JCudaDriver.cuMemAlloc(d_kernelPointers, Sizeof.INT * 2 * Kernel.getKHeight());
@@ -345,7 +340,6 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
 
       // copy from host to device for the kernel parameters
       JCudaDriver.cuMemcpyHtoD(d_cache, h_cache, Sizeof.FLOAT * nPixelsInCache);
-      JCudaDriver.cuMemcpyHtoD(d_initialSigmaRoi, h_initialSigmaRoi, Sizeof.FLOAT * nPixelsInRoi);
       JCudaDriver.cuMemcpyHtoD(d_bandwidthRoi, h_bandwidthRoi, Sizeof.FLOAT * nPixelsInRoi);
       JCudaDriver.cuMemcpyHtoD(d_kernelPointers, h_kernelPointers,
           Sizeof.INT * 2 * Kernel.getKHeight());
@@ -354,9 +348,9 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       JCudaDriver.cuMemcpyHtoD(d_progressRoi, h_progressRoi, Sizeof.INT * nPixelsInRoi);
 
       // put pointers in pointers, to pass to kernel
-      Pointer kernelParameters = Pointer.to(Pointer.to(d_cache), Pointer.to(d_initialSigmaRoi),
-          Pointer.to(d_bandwidthRoi), Pointer.to(d_kernelPointers), Pointer.to(d_nullMeanRoi),
-          Pointer.to(d_nullStdRoi), Pointer.to(d_progressRoi));
+      Pointer kernelParameters = Pointer.to(Pointer.to(d_cache), Pointer.to(d_bandwidthRoi),
+          Pointer.to(d_kernelPointers), Pointer.to(d_nullMeanRoi), Pointer.to(d_nullStdRoi),
+          Pointer.to(d_progressRoi));
 
       // call kernel
       int nBlockX = (roiWidth[0] + this.blockDimX - 1) / this.blockDimX;
