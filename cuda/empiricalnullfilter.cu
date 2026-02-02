@@ -461,12 +461,11 @@ __device__ void MultiFindMode(float* cache, int cache_width, float median,
  *   std filter here to be used to generate random noise. This is then modified
  *   to contain the empirical null std afterwards. If the Newton-Raphson method
  *   fails in a pixel, it take a value of <code>NAN</code>
- * @param progress_roi <b>Modified</b>  Image same size as ROI. To contain
- *   initally contains all zeros. A filtered pixel will change it to a one
+ * @param n_block_done <b>Modified</b> Number of blocks processed so far
  */
 extern "C" __global__ void EmpiricalNullFilter(
     float* cache, float* bandwidth_roi, int* kernel_pointers,
-    float* null_mean_roi, float* null_std_roi, int* progress_roi) {
+    float* null_mean_roi, float* null_std_roi, int* n_block_done) {
   GridInfo grid_info = GetGridInfo();
 
   int cache_width;  // width of the cache after calling GetSharedMemPointers()
@@ -493,7 +492,11 @@ extern "C" __global__ void EmpiricalNullFilter(
   if (grid_info.is_in_roi) {
     null_mean_roi[grid_info.roi_index] = *null_mean_shared;
     null_std_roi[grid_info.roi_index] = powf(-*second_diff_ln_shared, -0.5f);
-    progress_roi[grid_info.roi_index] = 1;
+  }
+
+  // only one thread per block updates n_block_done
+  if (threadIdx.x == 0 && threadIdx.y == 0) {
+    atomicAdd(n_block_done, 1);
   }
 }
 

@@ -464,7 +464,7 @@ class EmpiricalNullFilter:
         # transfer all parameters to gpu
         d_kernel_pointers = self._get_d_kernel_pointer()
 
-        d_progress_roi = cupy.zeros_like(d_null_mean_roi, cupy.int32)
+        d_n_block_done = cupy.zeros(1, cupy.int32)
 
         kernel_args = (
             d_cache,
@@ -472,7 +472,7 @@ class EmpiricalNullFilter:
             d_kernel_pointers,
             d_null_mean_roi,
             d_null_std_roi,
-            d_progress_roi,
+            d_n_block_done,
         )
 
         # get number of blocks to run

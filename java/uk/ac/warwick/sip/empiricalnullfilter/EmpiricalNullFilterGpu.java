@@ -21,7 +21,6 @@ import ij.gui.GenericDialog;
 import ij.plugin.filter.PlugInFilterRunner;
 import java.awt.Rectangle;
 import java.io.InputStream;
-import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Scanner;
@@ -43,6 +42,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
   // gpu variables
   private static int lastBlockDimX = 16;
   private static int lastBlockDimY = 16;
+  private static float progressBarFrequency = 60;  // in herzt
   private int blockDimX = lastBlockDimX;
   private int blockDimY = lastBlockDimY;
 
@@ -177,6 +177,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       int[] nInitial = {this.nInitial};
       int[] nStep = {this.nStep};
       int[] isCopyCacheToShared = new int[1];
+      int[] nBlockDone = {0};
 
       // get image to be filtered
       float[] pixels = (float[]) this.imageProcessor.getPixels();
@@ -202,10 +203,6 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       float[] bandwidthRoi = new float[nPixelsInRoi];
       float[] nullMeanRoi = new float[nPixelsInRoi];
       float[] nullStdRoi = new float[nPixelsInRoi];
-      Pointer h_progressRoi = new Pointer();
-      JCudaDriver.cuMemAllocHost(h_progressRoi, nPixelsInRoi * Sizeof.INT);
-      IntBuffer progressRoi =
-          h_progressRoi.getByteBuffer(0, nPixelsInRoi * Sizeof.INT).asIntBuffer();
 
       // get the bandwidth
       int imagePointer;
@@ -220,7 +217,6 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
           // put median in nullMeanRoi so that they used as initial values
           nullMeanRoi[roiPointer] = median[imagePointer];
           bandwidthRoi[roiPointer] = std[imagePointer];
-          progressRoi.put(roiPointer, 0);
 
           // bandwidth and iqr
           iqr = (q3[imagePointer] - q1[imagePointer]) / 1.34f;
@@ -275,6 +271,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       Pointer h_nInitial = Pointer.to(nInitial);
       Pointer h_nStep = Pointer.to(nStep);
       Pointer h_isCopyCacheToShared = Pointer.to(isCopyCacheToShared);
+      Pointer h_nBlockDone = Pointer.to(nBlockDone);
 
       // device pointers
       CUdeviceptr d_roiWidth = new CUdeviceptr();
@@ -322,7 +319,7 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       CUdeviceptr d_kernelPointers = new CUdeviceptr();
       CUdeviceptr d_nullMeanRoi = new CUdeviceptr();
       CUdeviceptr d_nullStdRoi = new CUdeviceptr();
-      CUdeviceptr d_progressRoi = new CUdeviceptr();
+      CUdeviceptr d_nBlockDone = new CUdeviceptr();
 
       // allocate memory on device
       JCudaDriver.cuMemAlloc(d_cache, Sizeof.FLOAT * nPixelsInCache);
@@ -335,8 +332,8 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
       devicePointerArray.add(d_nullMeanRoi);
       JCudaDriver.cuMemAlloc(d_nullStdRoi, Sizeof.FLOAT * nPixelsInRoi);
       devicePointerArray.add(d_nullStdRoi);
-      JCudaDriver.cuMemAlloc(d_progressRoi, Sizeof.INT * nPixelsInRoi);
-      devicePointerArray.add(d_progressRoi);
+      JCudaDriver.cuMemAlloc(d_nBlockDone, Sizeof.INT);
+      devicePointerArray.add(d_nBlockDone);
 
       // copy from host to device for the kernel parameters
       JCudaDriver.cuMemcpyHtoD(d_cache, h_cache, Sizeof.FLOAT * nPixelsInCache);
@@ -345,12 +342,12 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
           Sizeof.INT * 2 * Kernel.getKHeight());
       JCudaDriver.cuMemcpyHtoD(d_nullMeanRoi, h_nullMeanRoi, Sizeof.FLOAT * nPixelsInRoi);
       JCudaDriver.cuMemcpyHtoD(d_nullStdRoi, h_nullStdRoi, Sizeof.FLOAT * nPixelsInRoi);
-      JCudaDriver.cuMemcpyHtoD(d_progressRoi, h_progressRoi, Sizeof.INT * nPixelsInRoi);
+      JCudaDriver.cuMemcpyHtoD(d_nBlockDone, h_nBlockDone, Sizeof.INT);
 
       // put pointers in pointers, to pass to kernel
       Pointer kernelParameters = Pointer.to(Pointer.to(d_cache), Pointer.to(d_bandwidthRoi),
           Pointer.to(d_kernelPointers), Pointer.to(d_nullMeanRoi), Pointer.to(d_nullStdRoi),
-          Pointer.to(d_progressRoi));
+          Pointer.to(d_nBlockDone));
 
       // call kernel
       int nBlockX = (roiWidth[0] + this.blockDimX - 1) / this.blockDimX;
@@ -359,21 +356,20 @@ public class EmpiricalNullFilterGpu extends EmpiricalNullFilter {
           sharedMemorySize, null, kernelParameters, null);
 
       if (this.isShowProgressBar) {
+        long tInterval = (long) (1000 / EmpiricalNullFilterGpu.progressBarFrequency);
         // while the kernel is running, keep track of progress
         CUstream cuStream = new CUstream();
         // use try except to free cuStream when ending
         try {
           JCudaDriver.cuStreamCreate(cuStream, CUstream_flags.CU_STREAM_NON_BLOCKING);
-          int nPixelsDone = 0;
-          while (nPixelsDone != nPixelsInRoi) {
-            JCudaDriver.cuMemcpyDtoHAsync(h_progressRoi, d_progressRoi, Sizeof.INT * nPixelsInRoi,
+          while (nBlockDone[0] != nBlockX * nBlockY) {
+
+            Thread.sleep(tInterval);
+
+            JCudaDriver.cuMemcpyDtoHAsync(h_nBlockDone, d_nBlockDone, Sizeof.INT,
                 cuStream);
             JCudaDriver.cuStreamSynchronize(cuStream);
-            nPixelsDone = 0;
-            for (int i = 0; i < nPixelsInRoi; i++) {
-              nPixelsDone += progressRoi.get(i);
-            }
-            this.showProgress((double) nPixelsDone / (double) nPixelsInRoi);
+            this.showProgress((double) nBlockDone[0] / (double) (nBlockX * nBlockY));
           }
         } catch (Exception exception) {
           // do nothing, just no progress bar
