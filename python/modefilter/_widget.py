@@ -23,15 +23,12 @@ widgets
 """
 
 import math
-from typing import TYPE_CHECKING
 
 from magicgui import widgets
+import napari
 import numpy as np
 
 import modefilter
-
-if TYPE_CHECKING:
-    import napari
 
 
 class BaseContainer(widgets.Container):
@@ -168,40 +165,48 @@ class BaseContainer(widgets.Container):
 
         if image_layer.rgb:
             # in rgb, the last dimension is the colour channel
-            for i in range(3):
-                self._filter_slice(
-                    image_filter,
-                    (slice(None), slice(None), i),
-                    image,
-                    null_mean,
-                    null_std,
-                )
+            slice_shape = image.shape[0:2]
+            n_slice = 3
+            def slicer(i):
+                return (slice(None), slice(None), i)
         elif image.ndim == 2:
             # one grayscale image
+            slice_shape = image.shape
+            n_slice = 1
+            def slicer(_):
+                return (slice(None), slice(None))
+        elif image.ndim == 3:
+            # stack of grayscale images
+            slice_shape = image.shape[1:3]
+            n_slice = image.shape[0]
+            def slicer(i):
+                return (i, slice(None), slice(None))
+        else:
+            raise ValueError("Image type not supported")
+
+        n_block = image_filter.get_total_n_block(slice_shape)
+        progress_bar = napari.utils.progress(total=n_slice * n_block)
+        for i in range(n_slice):
             self._filter_slice(
                 image_filter,
-                (slice(None), slice(None)),
+                slicer(i),
                 image,
                 null_mean,
                 null_std,
+                progress_bar,
             )
-        elif image.ndim == 3:
-            # stack of grayscale images
-            for i in range(image.shape[0]):
-                self._filter_slice(
-                    image_filter,
-                    (i, slice(None), slice(None)),
-                    image,
-                    null_mean,
-                    null_std,
-                )
-        else:
-            raise ValueError("Image type not supported")
+        progress_bar.close()
 
         self._output_results(image_layer, image, null_mean, null_std)
 
     def _filter_slice(
-        self, image_filter, slice_index_args, image, null_mean, null_std
+        self,
+        image_filter,
+        slice_index_args,
+        image,
+        null_mean,
+        null_std,
+        progress_bar,
     ):
         """Filter an image (or a slice) from a stack of images
 
@@ -225,7 +230,10 @@ class BaseContainer(widgets.Container):
                 output
             null_std (bool): if the user requests the null std image as an
                 output
+            progress_bar (tqdm.tqdm): progress bar, advanced by the total number
+                of GPU blocks
         """
+        image_filter.set_progress_bar(progress_bar)
         image[*slice_index_args] = image_filter.filter(image[*slice_index_args])
         if null_mean is not None:
             null_mean[*slice_index_args] = image_filter.get_null_mean()

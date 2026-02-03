@@ -52,6 +52,7 @@ plt.show()
 import ctypes
 from importlib.resources import files
 import math
+import time
 
 import cupy
 from cupyx.scipy import ndimage
@@ -90,7 +91,10 @@ class EmpiricalNullFilter:
         _null_std (numpy.ndarray): the resulting empirical null std after
             calling filter()
         _kernel (_Kernel): the kernel used in filtering
+        _progress_bar (tqdm.tqdm): progress bar. Defaults to None
     """
+
+    _progress_bar_delay = 1 / 60  # time between progress bar updates in seconds
 
     def __init__(self, radius):
         self._n_initial = 3
@@ -103,6 +107,7 @@ class EmpiricalNullFilter:
         self._null_mean = None
         self._null_std = None
         self._kernel = _Kernel(radius)
+        self._progress_bar = None
 
     def set_n_initial(self, n_initial):
         """Set the number of initial points for the Newton method
@@ -152,6 +157,17 @@ class EmpiricalNullFilter:
         """
         self._block_dim_y = block_dim_y
 
+    def set_progress_bar(self, progress_bar):
+        """Set the progress bar
+
+        The progress bar to show when running the empirical null filter GPU
+        kernel. The progress bar advanced by the number of GPU blocks done
+
+        Args:
+            progress_bar (tqdm.tqdm): progress bar to assign to this filter
+        """
+        self._progress_bar = progress_bar
+
     def get_null_mean(self):
         """Get the resulting empirical null mean filter image
 
@@ -169,6 +185,20 @@ class EmpiricalNullFilter:
             numpy.ndarray: the null std image
         """
         return self._null_std
+
+    def get_total_n_block(self, image_shape):
+        """Get total number of blocks required in the GPU grid config
+
+        This is useful for a tqdm progress bar
+
+        Args:
+            image_shape (tuple): size two, the shape or size of the image
+
+        Returns:
+            int: number of blocks
+        """
+        n_block_x, n_block_y = self._get_n_block(image_shape)
+        return n_block_x * n_block_y
 
     def filter(self, image):
         """Filter the image using the empirical null filter
@@ -485,9 +515,43 @@ class EmpiricalNullFilter:
             kernel_args,
             shared_mem=shared_memory_size,
         )
+
+        # show progress bar if requested
+        if self._progress_bar is not None:
+            self._show_progress_bar(d_n_block_done, n_block_x * n_block_y)
+
         cupy.cuda.runtime.deviceSynchronize()
 
         return d_null_mean_roi, d_null_std_roi
+
+    def _show_progress_bar(self, d_n_block_done, n_block_total):
+        """Show progress bar while the kernel is running
+
+        Show progress bar while the kernel is running. Create another stream
+        so that the device variable can be retrieved while the kernel is
+        running. The CPU sleeps inbetween updates to avoid thrashing the
+        CPU<->GPU lanes
+
+        The progress bar is incremented by the number of blocks done by the
+        kernel and modifies the member variable _progress_bar
+
+        Args:
+            d_n_block_done (cupy.ndarray): the number of blocks done, updated
+                by the kernel
+            n_block_total (int): total number of blocks requested in the kernel
+        """
+        # use another stream to retrive d_n_block_done
+        stream = cupy.cuda.Stream(non_blocking=True)
+        n_block_done = 0
+        while n_block_done < n_block_total:
+            time.sleep(EmpiricalNullFilter._progress_bar_delay)
+
+            h_n_block_done = d_n_block_done.get(stream)
+            stream.synchronize()
+            n_block_done_now = h_n_block_done[0]
+
+            self._progress_bar.update(n_block_done_now - n_block_done)
+            n_block_done = n_block_done_now
 
     def _get_n_block(self, image_shape):
         """Get number of blocks required
