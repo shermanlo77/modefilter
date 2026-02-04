@@ -1,4 +1,3 @@
-LIB	:= -L$(CUDA_HOME)/lib64 -lcudart -lcurand
 NVCC_ARCH	?= sm_75
 NVCCFLAGS	:= -arch=$(NVCC_ARCH) --ptxas-options=-v --use_fast_math
 
@@ -6,14 +5,17 @@ NVCCFLAGS	:= -arch=$(NVCC_ARCH) --ptxas-options=-v --use_fast_math
 
 all:	cuda python
 
-cuda:	cuda/empiricalnullfilter.ptx
+build:
+	mkdir -p build/cuda
 
-python:	cuda/empiricalnullfilter.ptx
-	cp cuda/empiricalnullfilter.ptx python/modefilter/
+cuda:	build/cuda/empiricalnullfilter.ptx
 
-cuda/empiricalnullfilter.ptx: cuda/empiricalnullfilter.cu Makefile
-	nvcc -ptx $< -o $@ $(NVCCFLAGS) $(LIB)
+build/cuda/empiricalnullfilter.ptx: src/cuda/empiricalnullfilter.cu | build
+	nvcc -ptx $< -o $@ $(NVCCFLAGS)
+
+python:	build/cuda/empiricalnullfilter.ptx
+	cp build/cuda/empiricalnullfilter.ptx src/python/modefilter/
 
 clean:
-	rm -f cuda/empiricalnullfilter.ptx
-	rm -f python/modefilter/empiricalnullfilter.ptx
+	rm -rf build
+	rm src/python/modefilter/empiricalnullfilter.ptx

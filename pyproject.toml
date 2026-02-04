@@ -17,7 +17,7 @@ napari = ["napari[all]"]
 modefilter = "modefilter:napari.yaml"
 
 [tool.setuptools.packages.find]
-where = ["python"]
+where = ["src/python"]
 
 [tool.setuptools.package-data]
 "*" = ["*.ptx"]

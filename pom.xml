@@ -9,11 +9,11 @@
   </properties>
 
   <build>
-    <sourceDirectory>java</sourceDirectory>
+    <sourceDirectory>src/java</sourceDirectory>
 
     <resources>
       <resource>
-        <directory>${basedir}/cuda</directory>
+        <directory>${basedir}/build/cuda</directory>
       </resource>
     </resources>
 
