@@ -16,17 +16,19 @@ From: ubuntu
     apt install -y python-is-python3
     apt install -y python3-pip
     apt install -y python3-venv
+    apt install -y libxcb-xinerama0 libxcb-xinput0
 
-    cd /usr/local/src
+    cd /usr/src
     git clone https://github.com/shermanlo77/modefilter.git
     cd modefilter
     make NVCC_ARCH=${nvcc_arch}
     python -m venv venv
     . venv/bin/activate
     pip install --upgrade build
-    pip install .
-    pip install .[${cupy_version}]
+    pip install -e .
+    pip install -e .[${cupy_version}]
+    pip install -e .["napari"]
 
 %runscript
-    . /usr/local/src/modefilter/venv/bin/activate
-    python "$@"
+    . /usr/src/modefilter/venv/bin/activate
+    napari "$@"
