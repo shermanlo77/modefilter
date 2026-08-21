@@ -11,6 +11,7 @@ dependencies = ["numpy", "scipy"]
 [project.optional-dependencies]
 cuda11x = ["cupy-cuda11x"]
 cuda12x = ["cupy-cuda12x"]
+cuda13x = ["cupy-cuda13x"]
 napari = ["napari[all]"]
 
 [project.entry-points."napari.manifest"]
