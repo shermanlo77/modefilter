@@ -1,17 +1,21 @@
 BootStrap: docker
-From: ubuntu
+From: ubuntu:26.04
 
 %environment
     export LC_ALL=C
     export _JAVA_OPTIONS="-Duser.home=/tmp"
 
 %post
-    apt update
-    apt install -y git
-    apt install -y openjdk-8-jdk
-    apt install -y maven
-    apt install -y wget
-    apt install -y unzip
+    export DEBIAN_FRONTEND="noninteractive"
+    export DEBCONF_NONINTERACTIVE_SEEN=true
+
+    apt update -y
+    apt install -y \
+        git \
+        openjdk-8-jdk \
+        maven \
+        wget \
+        unzip
 
     cd /tmp
     wget https://wsr.imagej.net/distros/linux/ij154-linux64-java8.zip

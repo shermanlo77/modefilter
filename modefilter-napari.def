@@ -1,33 +1,23 @@
-BootStrap: docker
-From: ubuntu
+BootStrap: localimage
+From: modefilter-cupy.sif
 
 %environment
     export LC_ALL=C
     export PYTHONNOUSERSITE=1
 
 %post
-    nvcc_arch="sm_80"
-    cupy_version="cuda12x"
+    export DEBIAN_FRONTEND="noninteractive"
+    export DEBCONF_NONINTERACTIVE_SEEN=true
 
-    apt update
-    apt install -y git
-    apt install -y gcc
-    apt install -y nvidia-cuda-toolkit
-    apt install -y python-is-python3
-    apt install -y python3-pip
-    apt install -y python3-venv
-    apt install -y libxcb-xinerama0 libxcb-xinput0
+    apt update -y
+    apt install -y \
+        libxcb-xinerama0 \
+        libxcb-xinput0 \
+        libxcb-cursor0
 
-    cd /usr/src
-    git clone https://github.com/shermanlo77/modefilter.git
-    cd modefilter
-    make NVCC_ARCH=${nvcc_arch}
-    python -m venv venv
+    cd /usr/src/modefilter
     . venv/bin/activate
-    pip install --upgrade build
-    pip install -e .
-    pip install -e .[${cupy_version}]
-    pip install -e .["napari"]
+    pip install -e .[napari]
 
 %runscript
     . /usr/src/modefilter/venv/bin/activate

@@ -1,0 +1,45 @@
+BootStrap: docker
+From: ubuntu:24.04
+
+%environment
+    export LC_ALL=C
+    export PYTHONNOUSERSITE=1
+
+%arguments
+    nvcc_arch=sm_86
+    cupy_version=cuda12x
+
+%post
+    export DEBIAN_FRONTEND="noninteractive"
+    export DEBCONF_NONINTERACTIVE_SEEN=true
+
+    apt update -y
+    apt install -y \
+        git \
+        build-essential \
+        nvidia-cuda-toolkit \
+        python-is-python3 \
+        python3-pip \
+        python3-venv
+
+    cd /usr/src
+    git clone https://github.com/shermanlo77/modefilter.git
+    cd modefilter
+    make NVCC_ARCH={{ nvcc_arch }}
+    python -m venv venv
+    . venv/bin/activate
+    pip install --upgrade build
+    pip install .
+    pip install .[{{ cupy_version }}]
+    pip install .[test]
+
+%test
+    cd /usr/src/modefilter
+    . venv/bin/activate
+    # ensure no cache is written to or not to a read-only system
+    export CUPY_CACHE_DIR=/tmp/.cupy
+    pytest -p no:cacheprovider
+
+%runscript
+    . /usr/src/modefilter/venv/bin/activate
+    python "$@"
