@@ -1,32 +1,38 @@
 BootStrap: docker
-From: ubuntu
+From: ubuntu:26.04
 
 %environment
     export LC_ALL=C
     export PYTHONNOUSERSITE=1
 
-%post
+%arguments
     nvcc_arch="sm_80"
     cupy_version="cuda12x"
 
-    apt update
-    apt install -y git
-    apt install -y gcc
-    apt install -y nvidia-cuda-toolkit
-    apt install -y python-is-python3
-    apt install -y python3-pip
-    apt install -y python3-venv
-    apt install -y libxcb-xinerama0 libxcb-xinput0
+%post
+    export DEBIAN_FRONTEND="noninteractive"
+    export DEBCONF_NONINTERACTIVE_SEEN=true
+
+    apt update -y
+    apt install -y \
+        git \
+        gcc \
+        nvidia-cuda-toolkit \
+        python-is-python3 \
+        python3-pip \
+        python3-venv \
+        libxcb-xinerama0 \
+        libxcb-xinput0
 
     cd /usr/src
     git clone https://github.com/shermanlo77/modefilter.git
     cd modefilter
-    make NVCC_ARCH=${nvcc_arch}
+    make NVCC_ARCH={{ nvcc_arch }}
     python -m venv venv
     . venv/bin/activate
     pip install --upgrade build
     pip install -e .
-    pip install -e .[${cupy_version}]
+    pip install -e .[{{ cupy_version }}]
     pip install -e .["napari"]
 
 %runscript
