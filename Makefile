@@ -1,4 +1,4 @@
-NVCC_ARCH	?= sm_75
+NVCC_ARCH	?= sm_80
 NVCCFLAGS	:= -arch=$(NVCC_ARCH) --ptxas-options=-v --use_fast_math
 
 .PHONY: all clean
