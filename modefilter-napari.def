@@ -35,6 +35,13 @@ From: ubuntu:26.04
     pip install -e .[{{ cupy_version }}]
     pip install -e .["napari"]
 
+%test
+    cd /usr/src/modefilter
+    . venv/bin/activate
+    # ensure cupy doesn't write in a read-only system
+    export CUPY_CACHE_DIR=/tmp/.cupy
+    pytest
+
 %runscript
     . /usr/src/modefilter/venv/bin/activate
     napari "$@"
