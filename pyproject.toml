@@ -9,9 +9,8 @@ version = "2.5.0"
 dependencies = ["numpy", "scipy"]
 
 [project.optional-dependencies]
-cuda11x = ["cupy-cuda11x"]
-cuda12x = ["cupy-cuda12x"]
-cuda13x = ["cupy-cuda13x"]
+cuda12x = ["cupy-cuda12x[ctk]"]
+cuda13x = ["cupy-cuda13x[ctk]"]
 napari = ["napari[all]"]
 test = ["pytest"]
 
