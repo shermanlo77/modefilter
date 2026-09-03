@@ -12,7 +12,7 @@ dependencies = ["numpy", "scipy"]
 cuda12x = ["cupy-cuda12x[ctk]"]
 cuda13x = ["cupy-cuda13x[ctk]"]
 napari = ["napari[all]"]
-test = ["pytest"]
+test = ["pytest", "scikit-image"]
 
 [project.entry-points."napari.manifest"]
 modefilter = "modefilter:napari.yaml"
