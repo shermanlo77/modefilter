@@ -13,6 +13,7 @@ cuda11x = ["cupy-cuda11x"]
 cuda12x = ["cupy-cuda12x"]
 cuda13x = ["cupy-cuda13x"]
 napari = ["napari[all]"]
+test = ["pytest"]
 
 [project.entry-points."napari.manifest"]
 modefilter = "modefilter:napari.yaml"
