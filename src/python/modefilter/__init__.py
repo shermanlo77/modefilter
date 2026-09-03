@@ -16,10 +16,13 @@ The filters are implemented in the classes `ModeFilter` and
 For these containers to be usable in napari, see the file `napari.yaml`
 """
 
+import importlib
+
 from modefilter.modefilter import ModeFilter
 from modefilter.modefilter import EmpiricalNullFilter
 
-from modefilter._widget import ModeFilterContainer
-from modefilter._widget import EmpiricalNullFilterContainer
+if importlib.util.find_spec("napari"):
+    from modefilter._widget import ModeFilterContainer
+    from modefilter._widget import EmpiricalNullFilterContainer
 
 __all__ = ["ModeFilter", "EmpiricalNullFilter"]
