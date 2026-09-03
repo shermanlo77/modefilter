@@ -6,7 +6,7 @@ From: ubuntu:26.04
     export PYTHONNOUSERSITE=1
 
 %arguments
-    nvcc_arch="sm_80"
+    nvcc_arch="sm_86"
     cupy_version="cuda12x"
 
 %post

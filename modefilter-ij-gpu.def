@@ -6,7 +6,7 @@ From: ubuntu:26.04
     export _JAVA_OPTIONS="-Duser.home=/tmp"
 
 %arguments
-    nvcc_arch="sm_80"
+    nvcc_arch="sm_86"
 
 %post
     export DEBIAN_FRONTEND="noninteractive"
