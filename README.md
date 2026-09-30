@@ -67,21 +67,22 @@ where `<location of ImageJ>` is the location of your *ImageJ* or *Fiji* software
 
 ### ImageJ (CPU and GPU)
 
-Compile the *CUDA* code  into a `.ptx` file by calling `make` and providing your
-GPU architecture. For example, for an *Nvidia A100* with code `sm_80`
+Clone this repository. Compile the *CUDA* code  into a `.ptx` file by calling
+`make` and providing your GPU architecture. For example, for an *Nvidia A100*
+with code `sm_80`
 
 ```shell
 make NVCC_ARCH=sm_80
 ```
 
-Clone this repository and compile the package with
+Compile the package with
 [*Maven*](https://maven.apache.org/)
 
 ```shell
 mvn package
 ```
 
-The compiled files are in the direction `target/`. Copy the following:
+The compiled files are in the directory `target/`. Copy the following:
 
 * Copy `target/Empirical_Null_Filter-*.*.*.jar` into
   `<location of ImageJ>/plugins/`
@@ -92,18 +93,18 @@ where `<location of ImageJ>` is the location of your *ImageJ* or *Fiji* software
 
 ### Napari (GPU only)
 
-Requires the latest version of `build`.
+Requires the latest version of [Python `build`](https://pypi.org/project/build/)
 
-Compile the *CUDA* code  into a `.ptx` file by calling `make` and providing your
-GPU architecture. For example, for an *Nvidia A100* with code `sm_80`
+Clone this repository. Compile the *CUDA* code  into a `.ptx` file by calling
+`make` and providing your GPU architecture. For example, for an *Nvidia A100*
+with code `sm_80`
 
 ```shell
 make NVCC_ARCH=sm_80
 ```
 
-Clone this repository and, within a [virtual
-environment](https://docs.python.org/3/library/venv.html), install the package
-and *Napari* with *pip* or similarly
+Within a [virtual environment](https://docs.python.org/3/library/venv.html),
+install the package and *Napari* with *pip* or similarly
 
 ```bash
 pip install -e .
@@ -114,7 +115,7 @@ pip install -e .[napari]
 #### Troubleshooting *CuPy*
 
 You may require a version of *CuPy* which uses a specific version of *CUDA*. In
-that case, for example, you can use `pip install -e .[cuda11x]` to use CUDA 11
+that case, for example, you can use `pip install -e .[cuda13x]` to use CUDA 13
 instead.
 
 Please refer to `pyproject.toml` and the [CuPy installation
@@ -215,14 +216,14 @@ apptainer exec \
 
 ### Apptainer For ImageJ (CPU and GPU)
 
-Edit `modefilter-ij-gpu.def` so that `nvcc_arch` has the correct architecture
-code.
-
 To build the container
 
 ```shell
-apptainer build modefilter-ij-gpu.sif modefilter-ij-gpu.def
+apptainer build --build-arg nvcc_arch=<nvcc_arch> \
+  modefilter-ij-gpu.sif modefilter-ij-gpu.def
 ```
+
+where `<nvcc_arch>` is your GPU architecture, for example `nvcc_arch=sm_80`.
 
 To run *ImageJ*
 
@@ -232,14 +233,28 @@ apptainer run --nv modefilter-ij-gpu.sif
 
 ### Apptainer For Napari (GPU only)
 
-Edit `modefilter-napari.def` so that `nvcc_arch` has the correct architecture
-code and `cupy_version` with the required CuPy version.
+The Apptainer for Napari is split into two parts, `modefilter-cupy.def` and
+`modefilter-napari.def`. For former does not install Napari whereas the latter
+does.
 
-Older versions of CuPy may need an older version of the bootstrapped Ubuntu. For
-example with `cupy_version="cuda11x"`, you may need to edit to bootstrap to
-`From: ubuntu:22.04`.
+To build the first container
 
-To build the container
+```shell
+apptainer build --nv \
+  --build-arg nvcc_arch=<nvcc_arch> \
+  --build-arg cupy_version=<cupy_version> \
+  modefilter-cupy.sif modefilter-cupy.def
+```
+
+where `<nvcc_arch>` is your GPU architecture, for example `nvcc_arch=sm_80`, and
+`<cupy_version>` is the CUDA version of CuPy, for example `cupy_version=cuda12x`
+or `cupy_version=cuda13x`.
+
+This first container requires a GPU because the `%test` requires it. To avoid
+testing and requiring a GPU, replace `--nv` with `--notest`.
+
+To build the second container which includes Napari, it requires the first
+container beforehand, then
 
 ```shell
 apptainer build modefilter-napari.sif modefilter-napari.def
